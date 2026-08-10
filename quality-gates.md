@@ -102,6 +102,35 @@ Code changes have been reviewed by an appropriate reviewer. Peer review is not
 automated and cannot be a gate that always passes — if the process requires a
 review, the task is not done until one has been obtained.
 
+### 9. Associated Jira tickets match project reality *(if applicable)*
+
+Before completing a substantial change, reconcile every related Jira ticket with
+the current project state. Update stale descriptions, decisions, status, and
+evidence comments. Do not mark a ticket Done while acceptance or deployment
+evidence is incomplete.
+
+### 10. Implementation aligns with functional and technical specifications *(if applicable)*
+
+The change matches the available specifications. Where a functional
+specification (requirements, user stories, acceptance criteria) or a technical
+specification (design documents, API contracts, interface definitions,
+architecture decision records) exists, the implementation is checked against it
+before the task is done:
+
+- Every specified behaviour is implemented. No specified behaviour is missing,
+  or changed, without an agreed change to the specification itself.
+- The implementation adds no undocumented behaviour that conflicts with the
+  specification.
+- Where the code and the specification disagree, the discrepancy is resolved —
+  either the code is corrected, or the specification is updated through the
+  agreed change process. An out-of-date specification is treated like out-of-date
+  documentation: a bug.
+
+This gate depends on human or reviewer judgement, so it cannot be a check that
+always passes. If no functional or technical specification exists, state this as
+a no-op — and consider whether the absence of a specification is itself a gap to
+address for a change of this size.
+
 ---
 
 ## Project-Specific Considerations

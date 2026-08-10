@@ -1,0 +1,46 @@
+# Quality gates — {{PROJECT_NAME}}
+
+The single source of truth for what **done-done** means in this project. Any
+team member should be able to run these checks and know the answer. Keep this
+file in sync with the tooling — an out-of-date checklist is a bug.
+
+## Run everything
+
+```bash
+{{RUNNER_COMMAND}}
+```
+
+This command runs every automated gate and exits non-zero on any failure, so it
+also works in pre-commit hooks and merge automation.
+
+## Gates
+
+| # | Gate | State | Command / note |
+|---|------|-------|----------------|
+| 1 | All tests pass | {{STATE}} | {{DETAIL}} |
+| 2 | End-to-end / acceptance tests pass | {{STATE}} | {{DETAIL}} |
+| 3 | Linters / formatters / static analysis pass | {{STATE}} | {{DETAIL}} |
+| 4 | New code covered by non-trivial tests | {{STATE}} | manual review |
+| 5 | Documentation updated | {{STATE}} | manual review |
+| 6 | Type checking passes | {{STATE}} | {{DETAIL}} |
+| 7 | Build / compile succeeds | {{STATE}} | {{DETAIL}} |
+| 8 | Security / secrets checks pass | {{STATE}} | {{DETAIL}} |
+| 9 | Change reviewed | {{STATE}} | manual |
+| 10 | Tracker / ticket reconciled | {{STATE}} | manual |
+| 11 | Implementation aligns with functional & technical specs | {{STATE}} | manual review vs {{SPEC_LOCATION}} |
+
+State legend: **applies** (must pass), **no-op** (does not apply — reason
+given), **gap** (should apply but not yet possible — tracked as work).
+
+## No-ops and gaps
+
+State every no-op and gap here with its reason, so a reader can tell "checked
+and not needed" from "forgotten":
+
+- {{NOOP_OR_GAP_NOTES}}
+
+## When a gate fails
+
+Fix the code, not the gate. Diagnose the failure, fix all failures in the same
+session where practical, and re-run until every gate is green. Never weaken a
+check to force a pass.

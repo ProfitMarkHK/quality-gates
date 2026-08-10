@@ -1,0 +1,80 @@
+{
+  "skill_name": "quality-gates",
+  "evals": [
+    {
+      "id": 0,
+      "name": "python-existing-claude-md",
+      "prompt": "I've got a Python service in the py-service folder. Set up proper quality gates for it and update CLAUDE.md so Claude won't treat a task as done until the tests, the linter and the type checker all pass. Please edit the repo in place.",
+      "expected_output": "A project checklist doc listing the applicable gates (pytest, ruff, mypy) grounded in pyproject.toml/CI, a single runner command, and CLAUDE.md updated with a short marked 'definition of done' block that preserves the existing content. Build/E2E stated as no-ops.",
+      "files": ["evals/files/py-service"],
+      "expectations": [
+        "A project-specific quality-gates checklist document was created in the repo.",
+        "The checklist names pytest, ruff, and mypy as applicable gates, matching the tools actually configured in pyproject.toml and .github/workflows/ci.yml.",
+        "At least one gate that does not apply (e.g. build/compile, or end-to-end tests) is explicitly stated as a no-op rather than silently omitted.",
+        "The existing CLAUDE.md content (project layout, conventions) is preserved, not overwritten.",
+        "CLAUDE.md gained a 'definition of done' / quality-gates section stating no task is done until the applicable gates pass.",
+        "A single runner command (e.g. make check or scripts/check.sh) is defined or reused, and the checklist and CLAUDE.md reference it."
+      ]
+    },
+    {
+      "id": 1,
+      "name": "typescript-all-four-instruction-files",
+      "prompt": "This is our TypeScript analytics dashboard (the web-dashboard folder). The team works across Claude Code, GitHub Copilot and Cursor. I want one definition of done enforced everywhere: nothing gets merged with failing lint, tests or type checks. Wire that into the agent instruction files for all three tools. Edit the repo directly.",
+      "expected_output": "A checklist doc citing eslint, jest, tsc, prettier; the existing npm scripts reused (or a runner composing them); and the done-done block added to AGENTS.md/CLAUDE.md, .github/copilot-instructions.md and Cursor rules, each pointing to the one checklist. Existing AGENTS.md content preserved.",
+      "files": ["evals/files/web-dashboard"],
+      "expectations": [
+        "A project-specific quality-gates checklist document was created in the repo.",
+        "The checklist identifies the TypeScript gates that actually apply: eslint (lint), jest (tests), and tsc (type check).",
+        "The existing npm scripts (lint, test, typecheck) are reused or composed into a single runner command rather than inventing unrelated commands.",
+        "A GitHub Copilot instruction file was created at .github/copilot-instructions.md with the definition-of-done rule.",
+        "A Cursor rule was created (.cursor/rules/*.mdc or .cursorrules) with the definition-of-done rule.",
+        "The pre-existing AGENTS.md content (getting started, code style) is preserved and a definition-of-done block was added to it.",
+        "The instruction-file blocks reference the single checklist doc rather than each duplicating the full gate list."
+      ]
+    },
+    {
+      "id": 2,
+      "name": "bash-no-tests-gap-and-noops",
+      "prompt": "can you look at my backup-scripts folder and work out what checks we should run before calling a change done, then make the agents actually enforce it? there's no real build or anything, it's just shell scripts. edit the folder for me.",
+      "expected_output": "A checklist recognising Bash: shellcheck as the linter gate, build/compile and type-check stated as no-ops, and the absence of any tests flagged as a gap to address (not silently skipped). An agent-instruction file is created from scratch since none exists, with the done-done block.",
+      "files": ["evals/files/backup-scripts"],
+      "expectations": [
+        "A project-specific quality-gates checklist document was created in the repo.",
+        "shellcheck is identified as the applicable linter/static-analysis gate for the shell scripts.",
+        "Build/compile and type-checking are explicitly stated as no-ops for this shell-only project, with a reason, rather than omitted.",
+        "The complete absence of tests is flagged as a gap to address (work to do), not silently dropped or marked non-applicable.",
+        "Because the repo had no agent-instruction file, at least one was created (AGENTS.md or CLAUDE.md) containing the definition-of-done rule.",
+        "A single runner command is proposed that fits a shell project (e.g. a Makefile 'check' target or scripts/check.sh running shellcheck)."
+      ]
+    },
+    {
+      "id": 3,
+      "name": "c-lang-clean-linter-and-spec-alignment",
+      "prompt": "Set up quality gates for the jsonparser C library and enforce them in the agent instruction files. We prefer the Clean linter for C. There are specs in the docs folder — make sure the gates check the implementation against them. Edit the folder in place.",
+      "expected_output": "A checklist that: names Clean as the preferred C linter (clang-tidy noted as the present fallback); marks build/compile as an APPLIES gate (compiled C via cmake/make); includes the spec-alignment gate referencing docs/functional-spec.md; keeps tests (ctest) as a gate; creates an agent-instruction file from scratch; and defines/reuses one runner. Type-check should be stated as a no-op for C.",
+      "files": ["evals/files/jsonparser"],
+      "expectations": [
+        "A project-specific quality-gates checklist document was created in the repo.",
+        "Clean is named as the preferred linter for C, per the stated policy, rather than defaulting silently to another linter.",
+        "clang-tidy is acknowledged as the fallback that is actually configured (in the Makefile lint target), and the choice between Clean and clang-tidy is explained.",
+        "The build/compile gate is marked as APPLIES for this compiled C project (cmake/make), not as a no-op.",
+        "The specification-alignment gate is included and references the functional/technical specs in docs/ (e.g. docs/functional-spec.md).",
+        "An agent-instruction file was created (none existed) containing the definition-of-done rule referencing the checklist.",
+        "A single runner command is defined or reused (e.g. a Makefile check target composing build, test, and lint)."
+      ]
+    },
+    {
+      "id": 4,
+      "name": "idempotent-rerun-no-duplicate-fence",
+      "prompt": "[This eval runs the skill twice on the same repo to test idempotency. The executor is instructed to apply the skill, then apply it a second time to the same repo.]",
+      "expected_output": "After the second application, each agent-instruction file contains exactly one managed quality-gates block between the BEGIN/END markers (no duplicate), the existing content is still intact, and there is exactly one checklist doc (not two).",
+      "files": ["evals/files/py-service"],
+      "expectations": [
+        "After running the skill twice, CLAUDE.md contains exactly one BEGIN QUALITY GATES marker and one END marker (the block was updated in place, not duplicated).",
+        "The original CLAUDE.md content (project layout, conventions) is still present after the second run.",
+        "There is exactly one checklist document in the repo, not a duplicated pair.",
+        "The managed block still contains the runner command and a reference to the checklist doc after the second run."
+      ]
+    }
+  ]
+}
