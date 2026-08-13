@@ -4,6 +4,15 @@ All notable changes to the quality-gates skill are recorded here. Dates are
 when the work was done, not calendar releases — this project has not yet cut a
 tagged release (see `docs/deployment-readiness.md`).
 
+## 2026-08-13 — process decision
+
+- Deployment-readiness item #6 (description trigger-accuracy eval) demoted
+  from **gap** to **deferred — not blocking**. The eval requires
+  skill-creator's description-optimization loop, which shells out to the
+  Claude Code CLI (`claude -p`); this project deliberately avoids that
+  dependency. The item stays tracked but never blocks a release or wide
+  sharing. Revisit only if skill triggering proves unreliable in practice.
+
 ## Iteration 2 — 2026-08-10
 
 - Added gate 11, **specification alignment**: checks the implementation

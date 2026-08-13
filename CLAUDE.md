@@ -28,7 +28,8 @@ This project uses its own skill on itself. No change here is done-done until:
    exists to prevent — see `references/gate-catalog.md`.
 5. **Packaging succeeds before any release.** `python3 scripts/package_skill.py`
    produces `dist/quality-gates.skill` without errors. Before *tagging* a
-   release (not every commit), also clear every item in
+   release (not every commit), also clear every **applies** item and confirm
+   any deferred or no-op items are stated in
    `docs/deployment-readiness.md`.
 
 Fix the code, not the gate — if a check is inconvenient, that's a signal to fix
