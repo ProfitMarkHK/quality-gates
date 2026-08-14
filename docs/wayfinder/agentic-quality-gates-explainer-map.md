@@ -39,12 +39,10 @@ scope ends.
   Lead a self-guided audience from an agent's unsupported completion claim to
   visible evidence, then a fictional, language-neutral project walkthrough and
   the next action.
+- [Define the security-tooling roadmap message](tickets/define-security-tooling-roadmap-message.md) —
+  Show current detection and gap reporting beside a future, project-owner
+  approved bootstrap path; never present the latter as current behaviour.
 ## Not yet specified
-
-- The final visual language, diagram treatment, and accessibility details
-  depend on the information architecture and deck authoring decision.
-- Speaker notes and distribution needs will be revisited once the deck format
-  is chosen.
 
 ## Out of scope
 

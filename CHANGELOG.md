@@ -15,6 +15,9 @@ tagged release (see `docs/deployment-readiness.md`).
   dependency audit reported high-severity findings.
 - Resolved the explainer's self-guided eight-slide learning arc. It introduces
   evidence-based done-done gates through a fictional, language-neutral service.
+- Resolved the security-tooling roadmap message. The deck now separates current
+  evidence and gap reporting from a future, project-owner approved bootstrap
+  path.
 
 ## 2026-08-13 — process decision
 
