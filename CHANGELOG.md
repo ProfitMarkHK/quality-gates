@@ -13,6 +13,8 @@ tagged release (see `docs/deployment-readiness.md`).
 - Added a dependency-free Pandoc-to-PowerPoint workflow for the explainer's
   Markdown source. The earlier Marp CLI option was rejected after a manual
   dependency audit reported high-severity findings.
+- Resolved the explainer's self-guided eight-slide learning arc. It introduces
+  evidence-based done-done gates through a fictional, language-neutral service.
 
 ## 2026-08-13 — process decision
 

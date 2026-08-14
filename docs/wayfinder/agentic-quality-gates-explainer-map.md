@@ -35,6 +35,10 @@ scope ends.
   Use the installed Pandoc to export Markdown source to a local PowerPoint
   file. Do not add a Node dependency, remote presentation assets, or generated
   output to the repository.
+- [Define the deck learning arc](tickets/define-deck-learning-arc.md) —
+  Lead a self-guided audience from an agent's unsupported completion claim to
+  visible evidence, then a fictional, language-neutral project walkthrough and
+  the next action.
 ## Not yet specified
 
 - The final visual language, diagram treatment, and accessibility details
