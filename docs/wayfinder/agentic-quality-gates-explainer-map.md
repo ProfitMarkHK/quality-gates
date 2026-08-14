@@ -31,6 +31,10 @@ scope ends.
   The skill detects repository evidence, records each gate as applies, no-op,
   or gap, writes the checklist and managed instruction blocks, and does not
   install or prove local availability of security tools.
+- [Choose Markdown deck authoring and rendering](tickets/choose-markdown-deck-authoring.md) —
+  Use the installed Pandoc to export Markdown source to a local PowerPoint
+  file. Do not add a Node dependency, remote presentation assets, or generated
+  output to the repository.
 ## Not yet specified
 
 - The final visual language, diagram treatment, and accessibility details
