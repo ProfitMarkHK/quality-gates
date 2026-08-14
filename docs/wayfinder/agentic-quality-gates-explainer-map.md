@@ -18,6 +18,7 @@ scope ends.
 - Audience: developers who are new to agentic development.
 - Primary action: run the quality-gates skill on the next project.
 - Visual register: systems map. Use evidence, flows, and explicit states.
+- Use ASD-STE100 English in the prototype and final deck.
 - The deck must distinguish verified current behaviour from the future
   security-tool installation roadmap.
 - Use `/grilling` and `/domain-modeling` when resolving human-in-the-loop
@@ -42,6 +43,9 @@ scope ends.
 - [Define the security-tooling roadmap message](tickets/define-security-tooling-roadmap-message.md) —
   Show current detection and gap reporting beside a future, project-owner
   approved bootstrap path; never present the latter as current behaviour.
+- [Prototype the deck information architecture](tickets/prototype-deck-information-architecture.md) —
+  Use the selected Evidence rail structure: eight slides that each add a clear
+  piece of evidence to the agent's completion claim.
 ## Not yet specified
 
 ## Out of scope

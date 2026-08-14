@@ -18,6 +18,8 @@ tagged release (see `docs/deployment-readiness.md`).
 - Resolved the security-tooling roadmap message. The deck now separates current
   evidence and gap reporting from a future, project-owner approved bootstrap
   path.
+- Selected the Evidence rail from a three-variant information-architecture
+  prototype. The prototype is preserved on its throwaway branch.
 
 ## 2026-08-13 — process decision
 
