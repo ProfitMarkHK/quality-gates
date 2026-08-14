@@ -4,6 +4,13 @@ All notable changes to the quality-gates skill are recorded here. Dates are
 when the work was done, not calendar releases — this project has not yet cut a
 tagged release (see `docs/deployment-readiness.md`).
 
+## 2026-08-14 — planning
+
+- Added a local Wayfinder decision map for an internal explainer about
+  agentic-development quality gates. The first resolved ticket records the
+  skill's verified detection, feedback, instruction-file, and security-tooling
+  boundaries.
+
 ## 2026-08-13 — process decision
 
 - Deployment-readiness item #6 (description trigger-accuracy eval) demoted

@@ -22,14 +22,15 @@ scope ends.
   security-tool installation roadmap.
 - Use `/grilling` and `/domain-modeling` when resolving human-in-the-loop
   tickets.
-- Repository material is authorized as Confidential for this task and
-  environment.
 
 ## Decisions so far
 
 <!-- Closed tickets are added here as links with a one-line gist. -->
 
-- [Verify the quality-gates skill's deck claims](tickets/verify-quality-gates-deck-claims.md) — The skill detects repository evidence, records each gate as applies, no-op, or gap, writes the checklist and managed instruction blocks, and does not install or prove local availability of security tools.
+- [Verify the quality-gates skill's deck claims](tickets/verify-quality-gates-deck-claims.md) —
+  The skill detects repository evidence, records each gate as applies, no-op,
+  or gap, writes the checklist and managed instruction blocks, and does not
+  install or prove local availability of security tools.
 ## Not yet specified
 
 - The final visual language, diagram treatment, and accessibility details
