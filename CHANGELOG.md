@@ -20,6 +20,8 @@ tagged release (see `docs/deployment-readiness.md`).
   path.
 - Selected the Evidence rail from a three-variant information-architecture
   prototype. The prototype is preserved on its throwaway branch.
+- Added the eight-slide, ASD-STE100 Markdown deck for the agentic-development
+  quality-gates explainer.
 
 ## 2026-08-13 — process decision
 

@@ -13,18 +13,19 @@ Verify the installed version:
 pandoc --version
 ```
 
-## Export a deck
+## Export the final deck
 
-The included `example.md` verifies the toolchain. It is not part of the final
-explainer.
+The final deck source is `agentic-quality-gates-explainer.md`.
 
 ```bash
 mkdir -p dist
-pandoc --from markdown --to pptx --output dist/example.pptx example.md
+pandoc --from markdown --to pptx \
+  --output dist/agentic-quality-gates-explainer.pptx \
+  agentic-quality-gates-explainer.md
 ```
 
-The information-architecture ticket will add the final deck source. Export it
-with the same command, replacing `example.md` and the output filename.
+The included `example.md` verifies the toolchain. It is not part of the final
+explainer.
 
 Generated files in `dist/` are intentionally ignored. The Markdown source is
 canonical. This workflow does not use remote presentation assets and does not
