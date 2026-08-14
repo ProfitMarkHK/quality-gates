@@ -22,8 +22,10 @@ local PowerPoint file. The committed workspace is `docs/wayfinder/deck/`; it
 contains source and workflow documentation only. Generated presentation files
 remain ignored.
 
-The initial Marp CLI option was rejected because its pinned current version
-reported four high-severity dependency vulnerabilities. Pandoc's HTML
+The initial Marp CLI option was rejected after a manual dependency audit found
+four high-severity vulnerabilities in its resolved dependency tree. This was
+not a preconfigured automated dependency gate; the catalog requires a project
+to define its severity threshold when security scanning applies. Pandoc's HTML
 presentation output was also rejected because it loads remote presentation
 assets. No local PDF engine is available. The local PowerPoint export works and
 is the supported preview and distribution path.

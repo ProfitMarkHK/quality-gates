@@ -11,8 +11,8 @@ tagged release (see `docs/deployment-readiness.md`).
   skill's verified detection, feedback, instruction-file, and security-tooling
   boundaries.
 - Added a dependency-free Pandoc-to-PowerPoint workflow for the explainer's
-  Markdown source. The earlier Marp CLI option was rejected because it failed
-  the dependency-vulnerability gate.
+  Markdown source. The earlier Marp CLI option was rejected after a manual
+  dependency audit reported high-severity findings.
 
 ## 2026-08-13 — process decision
 
