@@ -43,10 +43,10 @@ This prevents a silent skip from looking like a successful check.
 |---|---|
 | `quality-gates.md` | General guidance and the gate model |
 | `skill/quality-gates/SKILL.md` | The skill workflow |
-| `scripts/detect_project.py` | Read-only project evidence scan |
-| `references/gate-catalog.md` | The eleven-gate decision catalog |
-| `assets/` | Checklist and instruction-block templates |
-| Agent instruction files | The rule that future agents read |
+| `skill/quality-gates/scripts/detect_project.py` | Read-only project evidence scan |
+| `skill/quality-gates/references/gate-catalog.md` | The eleven-gate decision catalog |
+| `skill/quality-gates/assets/` | Checklist and instruction-block templates |
+| Target project instruction files | The rule that future agents read |
 
 The project keeps the full checklist in one place. Short instruction blocks
 point to it. This prevents rule drift.
