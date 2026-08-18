@@ -19,6 +19,20 @@ tagged release (see `docs/deployment-readiness.md`).
 - Clarified the domain glossary so manual gates remain binary without requiring
   every gate to be executable.
 
+### Advisory LLM assessment
+
+- Added an optional, best-effort LLM assessment after deterministic project
+  detection. The secure assessment can surface unrecognised or ambiguous
+  technology, but its source-backed recommendations remain advisory and cannot
+  invent commands or change gate states.
+- Added an explicit trust boundary, provenance requirements, completed/partial/
+  unavailable/timed-out/failed statuses, and non-blocking failure handling.
+- Added a standard-library contract adapter that serializes all target material,
+  validates per-observation provenance, and rejects changes to deterministic
+  review output.
+- Added evaluation scenarios for unknown technology, repository instruction
+  injection, and unavailable LLM capability.
+
 ### Domain model and documentation
 
 - Added `CONTEXT.md` defining the core domain vocabulary — done-done, gate,

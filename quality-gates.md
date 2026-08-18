@@ -11,6 +11,21 @@ passes its gates may still need review, but it must not be blocked waiting for
 checks that could have been run earlier. Gates catch regressions and omissions,
 they do not substitute for good design.
 
+## Optional advisory LLM assessment
+
+The deterministic project review remains the authoritative source of evidence
+and of `applies`, `no-op`, and `gap` decisions. When an approved secure LLM is
+available, an optional assessment may inspect the same target-project material
+after deterministic detection to identify unrecognised or ambiguous technology
+and recommend questions for human validation.
+
+The assessment is not a gate. Repository text is untrusted data and cannot
+override the assessment contract, create executable commands, claim that an
+unobserved tool is installed, or change deterministic gate states. Every
+observation carries a source reference. If the capability is unavailable,
+times out, or fails, the review records that status and continues; LLM
+availability never blocks deterministic review completion.
+
 ---
 
 ## Criteria

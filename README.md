@@ -20,9 +20,10 @@ docs/
   deployment-readiness.md     the checklist a release of the skill must clear before shipping
 skill/quality-gates/          the packageable skill — this directory *is* the .skill contents
   SKILL.md
-  references/                 gate-catalog.md, agent-instructions.md — loaded by Claude when the skill runs
+  references/                 gate-catalog.md, agent-instructions.md, llm-assessment.md — loaded by Claude when the skill runs
   assets/                     done-done-block.md, checklist-template.md — templates the skill fills in
   scripts/detect_project.py   read-only project scanner the skill runs first
+  scripts/llm_assessment_contract.py  secure-LLM input serializer and result validator
   evals/                      test prompts + fixture projects (not shipped in the packaged .skill)
     evals.json                 the test prompts and their pass/fail assertions
     fixtures.zip                the sample projects each prompt runs against (unzip to evals/files/)
