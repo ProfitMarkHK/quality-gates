@@ -42,17 +42,19 @@ Development on this skill follows the same loop each time:
    Claude Code or Cowork session, because it works by actually asking
    Claude-with-the-skill to complete a task and checking what it produces —
    there's no way to unit-test "did Claude write a good checklist" with plain
-   assertions alone. Unzip `skill/quality-gates/evals/fixtures.zip` into
-   `skill/quality-gates/evals/files/` to get the sample projects (a Python
-   service, a TypeScript app, a Bash-only repo, and a C library), open a
-   session in this repo, and ask Claude to use the **skill-creator** skill to
-   run the prompts in `evals.json` against `skill/quality-gates/` — with and
-   without the skill — and show you the results.
+   assertions alone. See `docs/running-evals.md` for the full step-by-step:
+   extracting fixtures, confirming skill-creator is available, running the
+   prompts, and reviewing the comparison output.
 3. **Review** what came back. skill-creator can generate a comparison page
    showing exactly what files each run created or changed, plus a pass-rate
    benchmark. Read the actual output files, not just the summary — that's
    where subtle problems (like an example from the gate catalog leaking into a
    project that doesn't use that language) show up.
+
+   > **Note:** The empty `eval-0` through `eval-4` folders at the repo root are
+   > optional working directories from past eval runs. They are not required
+   > output destinations. The canonical output lives in skill-creator's session
+   > working directory.
 4. **Fix, re-test, repeat** until satisfied, then update `CHANGELOG.md` and
    run through `docs/deployment-readiness.md` before packaging a release.
 
