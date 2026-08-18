@@ -9,16 +9,24 @@ A unit of work is done-done when every gate that applies to it has passed. The e
 _Avoid_: ready, complete, done
 
 **gate**:
-A single quality check with an unambiguous result: it passes or it does not. A gate that cannot be evaluated to a binary result is not a gate — it is a review. Gates are runnable; they do not depend on human judgement alone.
+A single quality check with an unambiguous result: it passes or it does not. A gate that cannot be evaluated to a binary result is not a gate — it is a review. Automated gates are runnable; manual gates may require human judgement, but their outcome must still be recorded as pass or fail.
 _Avoid_: check, criterion, quality bar
 
-**quality gate**:
-The framework — the catalog, the detection script, the skill, the enforcement mechanism, and the gate runner — taken as a whole. A quality gate (singular) is one check; quality gates (plural) is the system.
+**quality gates**:
+The framework — the catalog, the detection script, the skill, the enforcement mechanism, and the gate runner — taken as a whole. An individual check is a **gate**; together, the gates form the quality-gates system.
 _Avoid_: quality bar, quality standard
 
 **evidence**:
 The output of `detect_project.py` — a structured report of languages, manifests, linters, CI config, and other signals found in a project tree. Evidence is read-only and is not a decision. It is the raw material for mapping to the gate catalog.
 _Avoid_: findings, results, signals
+
+**deterministic review**:
+The read-only target-project inspection performed by `detect_project.py` and its direct file verification. Its evidence is authoritative for gate-state decisions; it completes independently of any LLM assessment.
+_Avoid_: baseline scan, initial analysis
+
+**LLM assessment**:
+A best-effort, advisory analysis of target-project material performed after the deterministic review. It can identify ambiguous or unrecognised technology and recommend matters for human validation, but it is neither evidence nor a gate and cannot change gate states by itself. Its unavailable state is recorded without preventing the deterministic review from completing.
+_Avoid_: LLM gate, AI evidence, AI verdict
 
 **gate catalog**:
 The structured mapping from detected evidence to applicable gates and their exact commands. The catalog is the authoritative decision layer — it defines which gates apply to which project types and how they are run. It lives in `references/gate-catalog.md`.

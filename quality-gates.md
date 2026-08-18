@@ -51,9 +51,9 @@ The set of linters depends on the project. Common examples:
 
 For PowerShell, parser or syntax validation is not a substitute for linting.
 When PowerShell source exists, use `PSScriptAnalyzer` with the project's
-settings file and record the exact `Invoke-ScriptAnalyzer` command. If the
-analyzer is applicable but unavailable, mark the gate as a gap or fail the
-runner closed; do not silently treat it as a no-op.
+settings file and record the exact `Invoke-ScriptAnalyzer` command. If
+`PSScriptAnalyzer` is unavailable, mark the gate as a gap and strongly recommend
+installing it; do not silently treat it as a no-op or fail the runner closed.
 
 If no linter applies, this gate is a no-op — but it must be stated as such,
 not silently skipped.
@@ -173,8 +173,8 @@ tests pass." New tests do not replace the baseline; they add to it.
 
 ## Automation
 
-Where possible, quality gates should be executable by a single command so that
-they can be run:
+Where possible, automated quality gates should be executable by a single command
+so that they can be run:
 
 - Before marking a task done
 - Automatically before merging
@@ -183,15 +183,19 @@ they can be run:
 A typical pattern:
 
 ```bash
-# All gates in one command
+# All automated gates in one command
 make check          # or: ./scripts/check.sh
 ```
 
-The gate runner should produce clear output and exit non-zero on any failure,
-so that it can be used in pre-commit hooks and merge automation.
+The gate runner should produce clear output and exit non-zero on any automated
+failure, so that it can be used in pre-commit hooks and merge automation. Some
+gates — such as test quality, documentation, review, ticket reconciliation, and
+specification alignment — require human judgement and remain checklist items,
+not runner commands.
 
 If a gate cannot be automated, state this explicitly and document the manual
-step — do not let it become an informal bypass.
+step. A manual gate still needs an explicit pass/fail outcome; it must not become
+an informal bypass.
 
 ---
 
