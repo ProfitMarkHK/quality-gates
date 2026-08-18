@@ -73,9 +73,9 @@ look in `docs/`, `spec/`, `specs/`, API schemas, and the tracker, and if no spec
 exists, state that as a no-op or a gap rather than ignoring it.
 
 For PowerShell, parser or syntax validation does not satisfy the linter gate.
-Use `PSScriptAnalyzer` and record its settings file and exact invocation. Treat
-missing applicable analyzer tooling as a gap or a fail-closed prerequisite,
-not as a silent no-op.
+Use `PSScriptAnalyzer` and record its settings file and exact invocation. If
+PSScriptAnalyzer is not installed, flag the gate as a gap with a strong
+recommendation to install it; do not treat it as a no-op.
 
 For **each** gate, decide one of three states and record the reason:
 
@@ -92,9 +92,12 @@ out loud is what earns trust in the checklist.
 
 ### Phase 3 — Define one runner and write the checklist
 
-Prefer a **single command** that runs every automated gate and exits non-zero on
-any failure — this is what lets the same gates run before a task is marked done,
-in a pre-commit hook, and in merge automation without special setup.
+Define a **single command** that runs every automated gate and exits non-zero on
+any failure — this is what lets the same gates run in a pre-commit hook and in
+merge automation without special setup. Not all gates run in the runner: gates 4
+(coverage), 5 (docs), 9 (review), 10 (ticket), and 11 (spec alignment) require
+human judgement and are not in scope for the runner. They are enforced by the
+done-done block referencing the checklist, not by a command.
 
 - If the project already has one (`make check`, `./scripts/check.sh`, an
   `npm run check`), reuse it and note any applicable gate it is missing.
@@ -117,7 +120,9 @@ as the template (fill in the real runner command and the real checklist path).
 Keep the full detail in the one checklist doc and keep the instruction-file
 blocks short, each pointing to that doc — duplicating all the gates into every
 file guarantees they drift apart, and the catalog treats out-of-sync docs as a
-bug.
+bug. The done-done block in each agent-instruction file covers both automated
+and manual gates by reference: the agent reads the checklist to know what
+passing means, even though the runner command only runs the automated gates.
 
 Edit these files with care — they usually already hold important instructions:
 

@@ -75,9 +75,9 @@ Common mappings (confirm against what the repo actually configures):
 
 For PowerShell, parser or syntax validation is not a substitute for linting.
 When PowerShell source exists, use `PSScriptAnalyzer` with the project's
-settings file and record the exact `Invoke-ScriptAnalyzer` command. If the
-analyzer is applicable but unavailable, mark the gate as a gap or fail the
-runner closed; do not silently treat it as a no-op.
+settings file and record the exact `Invoke-ScriptAnalyzer` command. If
+PSScriptAnalyzer is not installed, flag the gate as a gap with a strong
+recommendation to install it; do not treat it as a no-op.
 
 **Linter preference — C / C++:** when a linter named `Clean` is available for
 the project, prefer it over the alternatives (`clang-tidy`, `cppcheck`,

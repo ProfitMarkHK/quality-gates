@@ -6,12 +6,29 @@ tagged release (see `docs/deployment-readiness.md`).
 
 ## Unreleased
 
+### Domain model and documentation
+
+- Added `CONTEXT.md` defining the core domain vocabulary — done-done, gate,
+  applies/no-op/gap, evidence, runner, done-done block, and
+  agent-instruction file — so documents stop drifting.
+- Fixed runner definition in SKILL.md: Phase 3 now names the five manual gates
+  (4, 5, 9, 10, 11) that do not belong in the runner, and Phase 4 clarifies
+  that the done-done block covers them by reference.
+- Added `docs/adr/0001-clean-preferred-for-c-cpp.md` — ADRs for the two
+  non-obvious linting policies encoded in the gate catalog.
+- Added `docs/adr/0002-psscriptanalyzer-not-optional.md` — PSScriptAnalyzer
+  is a strong recommendation when PowerShell source exists; absent tooling is
+  flagged as a gap, not a hard-fail, to avoid blocking projects that have not
+  yet installed the module.
+
+### PowerShell detection
+
 - Added PowerShell detection to the project scanner, including
   `PSScriptAnalyzer` configuration and invocation evidence, and an explicit
   candidate when PowerShell lint tooling is missing.
 - Documented that PowerShell parser checks do not replace
   `PSScriptAnalyzer` linting and that missing applicable tooling must be
-  reported as a gap or fail closed.
+  reported as a gap, not a hard-fail.
 
 ## 2026-08-14 — planning
 
