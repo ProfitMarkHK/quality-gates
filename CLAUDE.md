@@ -19,6 +19,8 @@ This project uses its own skill on itself. No change here is done-done until:
    regression is visible. This gate is manual by nature (it needs a real
    Claude session to execute), so it can never be waved through by a script;
    say explicitly that it was done and what the result was.
+   See `docs/running-evals.md` for the full procedure (skill-creator must be
+   installed separately; extract `fixtures.zip` to `evals/files/` first).
 3. **Docs stay in sync.** `CHANGELOG.md` gets an entry for the change.
    `quality-gates.md` and `skill/quality-gates/references/gate-catalog.md`
    describe the same gates — if one changes, check whether the other needs to.
