@@ -6,6 +6,14 @@ tagged release (see `docs/deployment-readiness.md`).
 
 ## Unreleased
 
+### Consistency follow-up
+
+- Synced the general guidance with the skill's softened `PSScriptAnalyzer`
+  policy and its distinction between automated runner gates and manual gates.
+- Updated deployment readiness to expect the current 9-file package manifest.
+- Clarified the domain glossary so manual gates remain binary without requiring
+  every gate to be executable.
+
 ### Domain model and documentation
 
 - Added `CONTEXT.md` defining the core domain vocabulary — done-done, gate,
@@ -20,6 +28,18 @@ tagged release (see `docs/deployment-readiness.md`).
   is a strong recommendation when PowerShell source exists; absent tooling is
   flagged as a gap, not a hard-fail, to avoid blocking projects that have not
   yet installed the module.
+
+### Eval execution documentation
+
+- Added `docs/running-evals.md` — step-by-step guide for running the behavioural
+  eval suite: fixture extraction, skill-creator prerequisites, execution steps,
+  output interpretation, and common failure modes.
+- Updated `docs/deployment-readiness.md` item 3 to point to the new guide and
+  note the skill-creator and fixture-extraction requirements.
+- Updated `README.md` step 2 with pointer to `running-evals.md`; added note that
+  `eval-*` root folders are stale optional working directories.
+- Updated `CLAUDE.md` "behavioural changes re-tested" gate to point to the new
+  guide for the procedure.
 
 ### PowerShell detection
 
