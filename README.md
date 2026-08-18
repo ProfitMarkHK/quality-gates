@@ -62,6 +62,7 @@ The two scripts under `scripts/` are plain Python (standard library only) so
 they work in any shell, including CI:
 
 ```bash
+python3 -m unittest discover -s tests  # detector regression tests
 python3 scripts/validate_skill.py          # structural check — exit 0 = pass
 python3 scripts/package_skill.py           # writes dist/quality-gates.skill
 ```

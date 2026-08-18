@@ -8,13 +8,13 @@ quietly dropped), or **deferred** (optional; tracked but never blocking —
 revisit when conditions change). Run through this before tagging a release or
 widely sharing the packaged `.skill` file.
 
-| # | Check | State (as of iteration 2) | How |
+| # | Check | State (as of iteration 3) | How |
 |---|-------|------|-----|
 | 1 | `SKILL.md` structural validation passes | **Applies — green** | `python3 scripts/validate_skill.py` |
-| 2 | Detection script runs cleanly on representative project types | **Applies — green** | Exercised by evals against Python, TypeScript, Bash, and C fixtures |
-| 3 | Eval suite: 100% with-skill pass rate, no regression vs. previous iteration | **Applies — green** | 19/19 (evals 0–2) + 7/7 (eval 3) + 4/4 (eval 4) as of iteration 2; re-run via skill-creator before each release |
+| 2 | Detection script runs cleanly on representative project types | **Applies — green** | Exercised by evals against Python, TypeScript, Bash, and C fixtures, plus detector tests and a PowerShell project smoke check |
+| 3 | Eval suite: 100% with-skill pass rate, no regression vs. previous iteration | **Applies — pending manual re-run** | Previous result: 19/19 (evals 0–2) + 7/7 (eval 3) + 4/4 (eval 4); re-run with and without the PowerShell changes via skill-creator before release |
 | 4 | Idempotency: re-running on an already-gated repo doesn't duplicate the managed block | **Applies — green** | Covered by eval-4 |
-| 5 | Policy correctness spot-checked (no example leakage across languages) | **Applies — green** | Covered by eval-3; safety wording added in iteration 2 after a near-miss |
+| 5 | Policy correctness spot-checked (no example leakage across languages) | **Applies — green** | Covered by eval-3 and the PowerShell detector tests/smoke check; safety wording added in iteration 2 after a near-miss |
 | 6 | Description trigger-accuracy checked with a dedicated eval set | **Deferred — not blocking** | Optional. Requires skill-creator's description-optimization loop (`scripts/run_loop.py`), which depends on the Claude Code CLI (`claude -p`) — a dependency this project prefers to avoid. Not required for release or wide sharing. Revisit if skill triggering ever becomes a real problem |
 | 7 | `CHANGELOG.md` reflects the version being released | **Applies — must confirm per release** | Manual — update before tagging |
 | 8 | Packaged `.skill` produced and smoke-tested | **Applies — green** | `python3 scripts/package_skill.py`, then `unzip -l dist/quality-gates.skill` and confirm exactly 6 files, no stray artifacts |

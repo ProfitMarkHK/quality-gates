@@ -42,11 +42,18 @@ The set of linters depends on the project. Common examples:
 | Project type | Linters / analysers |
 |---|---|
 | Bash | `shellcheck` |
+| PowerShell | `PSScriptAnalyzer` via `Invoke-ScriptAnalyzer` |
 | Python | `ruff`, `flake8`, `mypy` |
 | TypeScript / JS | `eslint`, `tsc --noEmit` |
 | Go | `golangci-lint` |
 | Rust | `clippy`, `rustfmt` |
 | General | `prettier --check`, conventional-commit hook |
+
+For PowerShell, parser or syntax validation is not a substitute for linting.
+When PowerShell source exists, use `PSScriptAnalyzer` with the project's
+settings file and record the exact `Invoke-ScriptAnalyzer` command. If the
+analyzer is applicable but unavailable, mark the gate as a gap or fail the
+runner closed; do not silently treat it as a no-op.
 
 If no linter applies, this gate is a no-op — but it must be stated as such,
 not silently skipped.
@@ -85,7 +92,12 @@ Projects written in statically typed languages must pass the type-checker withou
 errors. This is distinct from linting: a program may be syntactically correct and
 well-formatted but still contain type errors.
 
-### 7. Security and secrets checks pass *(if applicable)*
+### 7. Build / compile succeeds *(if applicable)*
+
+Projects with a build or compile step must pass it. For interpreted or scripted
+projects without one, state this gate as a no-op.
+
+### 8. Security and secrets checks pass *(if applicable)*
 
 Relevant security scans pass — for example:
 
@@ -96,20 +108,20 @@ Relevant security scans pass — for example:
 > **Warning:** Do not commit or push secrets to repositories, even transiently.
 > Treat exposed credentials as compromised immediately.
 
-### 8. The change has been reviewed *(if applicable)*
+### 9. The change has been reviewed *(if applicable)*
 
 Code changes have been reviewed by an appropriate reviewer. Peer review is not
 automated and cannot be a gate that always passes — if the process requires a
 review, the task is not done until one has been obtained.
 
-### 9. Associated Jira tickets match project reality *(if applicable)*
+### 10. Associated Jira tickets match project reality *(if applicable)*
 
 Before completing a substantial change, reconcile every related Jira ticket with
 the current project state. Update stale descriptions, decisions, status, and
 evidence comments. Do not mark a ticket Done while acceptance or deployment
 evidence is incomplete.
 
-### 10. Implementation aligns with functional and technical specifications *(if applicable)*
+### 11. Implementation aligns with functional and technical specifications *(if applicable)*
 
 The change matches the available specifications. Where a functional
 specification (requirements, user stories, acceptance criteria) or a technical

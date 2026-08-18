@@ -13,6 +13,11 @@ file in sync with the tooling — an out-of-date checklist is a bug.
 This command runs every automated gate and exits non-zero on any failure, so it
 also works in pre-commit hooks and merge automation.
 
+For each language-specific lint gate, record the exact command, settings file,
+tool prerequisite or module installation, minimum version if relevant, any
+intentional rule exclusions, and whether missing tooling fails closed. Syntax or
+parser checks do not replace linting.
+
 ## Gates
 
 | # | Gate | State | Command / note |

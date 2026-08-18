@@ -50,7 +50,11 @@ python scripts/detect_project.py /path/to/project
 
 It reports languages, manifests, test setup, linters, type-checkers, security
 tooling, CI config, any existing single-command gate runner, and which
-agent-instruction files already exist. It only reads; it never writes.
+agent-instruction files already exist. PowerShell source includes `.ps1`,
+`.psm1`, and analyzer settings `.psd1` files. It identifies
+`PSScriptAnalyzer` settings or `Invoke-ScriptAnalyzer` invocations, and emits a
+candidate when PowerShell exists without analyzer evidence. It only reads; it
+never writes.
 
 Treat the output as evidence, not as decisions. Confirm anything ambiguous by
 opening the relevant config files (e.g. read `pyproject.toml`, `package.json`
@@ -67,6 +71,11 @@ only when it is not (and say which you used); and check the implementation
 against any functional or technical specification the project has (gate 11) —
 look in `docs/`, `spec/`, `specs/`, API schemas, and the tracker, and if no spec
 exists, state that as a no-op or a gap rather than ignoring it.
+
+For PowerShell, parser or syntax validation does not satisfy the linter gate.
+Use `PSScriptAnalyzer` and record its settings file and exact invocation. Treat
+missing applicable analyzer tooling as a gap or a fail-closed prerequisite,
+not as a silent no-op.
 
 For **each** gate, decide one of three states and record the reason:
 

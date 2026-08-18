@@ -40,7 +40,9 @@ EXT_LANG = {
     ".go": "Go", ".rs": "Rust", ".java": "Java", ".kt": "Kotlin",
     ".rb": "Ruby", ".php": "PHP", ".cs": "C#", ".c": "C", ".h": "C",
     ".cpp": "C++", ".cc": "C++", ".hpp": "C++", ".swift": "Swift",
-    ".sh": "Bash", ".bash": "Bash", ".scala": "Scala", ".ex": "Elixir",
+    ".sh": "Bash", ".bash": "Bash", ".ps1": "PowerShell",
+    ".psm1": "PowerShell", ".psd1": "PowerShell", ".scala": "Scala",
+    ".ex": "Elixir",
     ".exs": "Elixir", ".dart": "Dart", ".lua": "Lua", ".r": "R",
 }
 
@@ -81,6 +83,10 @@ LINTER_CONFIGS = {
     "golangci-lint": [".golangci.yml", ".golangci.yaml", ".golangci.toml"],
     "clippy/rustfmt": ["rustfmt.toml", ".rustfmt.toml", "clippy.toml"],
     "rubocop": [".rubocop.yml"],
+    "PSScriptAnalyzer": [
+        "PSScriptAnalyzerSettings.psd1",
+        ".PSScriptAnalyzerSettings.psd1",
+    ],
     # C / C++ linters. Policy: prefer "Clean" when present; clang-tidy and
     # cppcheck are the fallbacks. Config-file names for "Clean" are guesses —
     # confirm against the project, and also check the Makefile / CI for a
@@ -123,6 +129,15 @@ AGENT_INSTRUCTION_FILES = [
 ]
 
 CURSOR_RULES_DIR = ".cursor/rules"
+
+GATE_SCRIPT_NAMES = (
+    "check.sh", "ci.sh", "verify.sh", "test.sh",
+    "check.ps1", "ci.ps1", "verify.ps1", "test.ps1",
+)
+
+LINTER_INVOCATION_ALIASES = {
+    "PSScriptAnalyzer": ("invoke-scriptanalyzer",),
+}
 
 
 def read_text(path: Path) -> str:
@@ -190,6 +205,8 @@ def detect(root: Path) -> dict:
     # own (common for cppcheck, clang-tidy, and a "Clean" linter driven from a
     # Makefile target). Scanning it catches those cases.
     build_ci_text = read_text(root / "Makefile") + read_text(root / "makefile")
+    for script_name in GATE_SCRIPT_NAMES:
+        build_ci_text += read_text(root / "scripts" / script_name)
     for ci_dir in (".github/workflows", ".circleci"):
         d = root / ci_dir
         if d.is_dir():
@@ -212,6 +229,12 @@ def detect(root: Path) -> dict:
             # avoid e.g. "clean" matching inside "cleanup").
             in_build = bool(re.search(rf"(?<![a-z0-9]){re.escape(key)}(?![a-z0-9])",
                                       build_ci_lower))
+            aliases = LINTER_INVOCATION_ALIASES.get(tool, ())
+            in_build = in_build or any(
+                re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])",
+                          build_ci_lower)
+                for alias in aliases
+            )
             # "clean" as a bare token almost always means the `make clean`
             # artifact-removal target, not the Clean linter. Require a clearer
             # invocation ("clean lint/check/run/analyze") before trusting it.
@@ -219,18 +242,29 @@ def detect(root: Path) -> dict:
                 in_build = bool(re.search(r"clean\s+(lint|check|run|analyz|scan)",
                                           build_ci_lower))
             if found or in_pkg or in_pyproject or in_build:
-                hits[tool] = {
+                evidence = {
                     "config_files": found,
                     "in_package_json": bool(in_pkg),
                     "in_pyproject": bool(in_pyproject),
                     "in_build_or_ci": bool(in_build),
                 }
+                if tool == "PSScriptAnalyzer" and found and not in_build:
+                    evidence["note"] = (
+                        "Settings file found; confirm Invoke-ScriptAnalyzer is wired into a gate"
+                    )
+                hits[tool] = evidence
         return hits
 
     linters = tool_hits(LINTER_CONFIGS)
     if shell_scripts and "shellcheck" not in linters:
         linters["shellcheck (candidate)"] = {
             "config_files": [], "note": f"{shell_scripts} shell script(s) found",
+        }
+    powershell_scripts = lang_counts.get("PowerShell", 0)
+    if powershell_scripts and "PSScriptAnalyzer" not in linters:
+        linters["PSScriptAnalyzer (candidate)"] = {
+            "config_files": [],
+            "note": f"{powershell_scripts} PowerShell file(s) found; confirm PSScriptAnalyzer is available",
         }
     # Flag C/C++ so the caller applies the "prefer Clean" policy deliberately.
     if any(l in ("C", "C++") for l in languages) and "Clean" not in linters:
@@ -257,7 +291,7 @@ def detect(root: Path) -> dict:
                               "precommit", "pre-commit", "qa"}]
         if gate_like:
             gate_runner = {"type": "make", "targets": gate_like}
-    for script_name in ("check.sh", "ci.sh", "verify.sh", "test.sh"):
+    for script_name in GATE_SCRIPT_NAMES:
         if (root / "scripts" / script_name).exists():
             gate_runner = gate_runner or {"type": "script",
                                           "path": f"scripts/{script_name}"}
@@ -325,7 +359,11 @@ def summarize(report: dict) -> str:
         lines.append(f"Manifests    : {', '.join(report['manifests'])}")
     lines.append(f"Tests dir    : {'yes' if report['has_tests_dir'] else 'no'}"
                  f"  ({report['test_file_count_seen']} test file(s) seen)")
-    lines.append(f"Linters      : {', '.join(report['linters']) or '(none found)'}")
+    linter_names = []
+    for name, evidence in report["linters"].items():
+        note = evidence.get("note")
+        linter_names.append(f"{name} ({note})" if note else name)
+    lines.append(f"Linters      : {', '.join(linter_names) or '(none found)'}")
     lines.append(f"Type-checkers: {', '.join(report['typecheckers']) or '(none found)'}")
     lines.append(f"Security     : {', '.join(report['security_tools']) or '(none found)'}")
     lines.append(f"CI config    : {', '.join(report['ci']) or '(none found)'}")

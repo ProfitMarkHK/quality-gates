@@ -4,6 +4,15 @@ All notable changes to the quality-gates skill are recorded here. Dates are
 when the work was done, not calendar releases — this project has not yet cut a
 tagged release (see `docs/deployment-readiness.md`).
 
+## Unreleased
+
+- Added PowerShell detection to the project scanner, including
+  `PSScriptAnalyzer` configuration and invocation evidence, and an explicit
+  candidate when PowerShell lint tooling is missing.
+- Documented that PowerShell parser checks do not replace
+  `PSScriptAnalyzer` linting and that missing applicable tooling must be
+  reported as a gap or fail closed.
+
 ## 2026-08-14 — planning
 
 - Added a local Wayfinder decision map for an internal explainer about
@@ -38,7 +47,7 @@ tagged release (see `docs/deployment-readiness.md`).
   against available functional and technical specs (`docs/`, `spec/`, API
   schemas). Stated as a no-op when no spec exists, per the same honesty
   principle as every other gate. Mirrored into `quality-gates.md` as
-  criterion 10.
+  criterion 11.
 - Added C / C++ support to `detect_project.py` and the gate catalog, including
   a deliberate linter-preference policy: prefer a linter named `Clean` when
   available, fall back to `clang-tidy` / `cppcheck` otherwise, and say which
