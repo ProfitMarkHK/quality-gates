@@ -21,6 +21,7 @@ widely sharing the packaged `.skill` file.
 | 9 | Reviewed by a human before distribution | **Applies — manual, always required** | Peer review can't be automated; this gate can never read as "always passes" |
 | 10 | Security / secrets scan of the skill's own source | **No-op** | The skill contains no credentials, tokens, or executable payloads beyond `detect_project.py`, which only reads the filesystem it's pointed at |
 | 11 | Specification alignment: does the skill do what `quality-gates.md` says it should? | **Applies — green, re-check on every change to either file** | Manual comparison — `quality-gates.md` is the spec, `skill/quality-gates/` is the implementation |
+| 12 | Agent Skill structure validation | **Applies — must confirm per release** | `npx --yes skills-ref validate skill/quality-gates` |
 
 ## Deferred (optional, not blocking)
 

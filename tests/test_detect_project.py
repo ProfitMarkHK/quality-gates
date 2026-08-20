@@ -84,5 +84,32 @@ class DetectPowerShellTests(unittest.TestCase):
         self.assertIn("PowerShell", report["linters"]["PSScriptAnalyzer (candidate)"]["note"])
 
 
+class DetectAgentSkillTests(unittest.TestCase):
+    def test_detects_root_and_nested_agent_skills(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "SKILL.md").write_text(
+                "---\nname: example\ndescription: Example\n---\n",
+                encoding="utf-8",
+            )
+            nested = root / "skills" / "nested-skill"
+            nested.mkdir(parents=True)
+            (nested / "SKILL.md").write_text(
+                "---\nname: nested-skill\ndescription: Nested\n---\n",
+                encoding="utf-8",
+            )
+
+            report = detect(root)
+
+        self.assertEqual(
+            report["agent_skills"],
+            [
+                {"directory": ".", "file": "SKILL.md"},
+                {"directory": "skills/nested-skill", "file": "skills/nested-skill/SKILL.md"},
+            ],
+        )
+        self.assertIn("Agent skills", summarize(report))
+
+
 if __name__ == "__main__":
     unittest.main()

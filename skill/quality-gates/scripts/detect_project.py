@@ -157,6 +157,7 @@ def detect(root: Path) -> dict:
     test_files: list[str] = []
     has_tests_dir = False
     shell_scripts = 0
+    agent_skills: list[dict[str, str]] = []
 
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
@@ -179,6 +180,10 @@ def detect(root: Path) -> dict:
                 rel = os.path.normpath(os.path.join(rel_dir, fn))
                 if len(test_files) < 50:
                     test_files.append(rel)
+            if fn == "SKILL.md":
+                rel = os.path.normpath(os.path.join(rel_dir, fn))
+                directory = "." if rel_dir == "." else rel_dir
+                agent_skills.append({"directory": directory, "file": rel})
 
     languages = sorted(lang_counts, key=lambda k: lang_counts[k], reverse=True)
 
@@ -329,6 +334,7 @@ def detect(root: Path) -> dict:
                 if rel not in spec_hits:
                     spec_hits.append(rel)
     spec_hits = sorted(set(spec_hits))[:40]
+    agent_skills.sort(key=lambda item: item["directory"])
 
     return {
         "root": str(root),
@@ -347,6 +353,7 @@ def detect(root: Path) -> dict:
         "agent_instruction_files": instruction_files,
         "cursor_rules_files": cursor_rules,
         "specs": spec_hits,
+        "agent_skills": agent_skills,
     }
 
 
@@ -374,6 +381,9 @@ def summarize(report: dict) -> str:
     specs = report.get("specs", [])
     spec_show = ", ".join(specs[:6]) + (" ..." if len(specs) > 6 else "")
     lines.append(f"Specs (hint) : {spec_show or '(none found — ask where the spec lives)'}")
+    skills = report.get("agent_skills", [])
+    skill_show = ", ".join(item["directory"] for item in skills)
+    lines.append(f"Agent skills : {skill_show or '(none found)'}")
     lines.append("")
     lines.append("This is evidence only. Map it to the gate catalog to decide "
                  "which gates apply, which are no-ops, and which are gaps.")

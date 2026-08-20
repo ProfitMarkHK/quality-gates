@@ -143,6 +143,21 @@ always passes. If no functional or technical specification exists, state this as
 a no-op — and consider whether the absence of a specification is itself a gap to
 address for a change of this size.
 
+### 12. Agent Skill structure validates *(if applicable)*
+
+Projects containing one or more Agent Skills validate every directory containing
+`SKILL.md` against the Agent Skills structure and frontmatter contract. Run:
+
+```text
+npx --yes skills-ref validate <skill-directory>
+```
+
+The validator must exit successfully, including agreement between the skill
+directory name and its frontmatter `name`. If the project contains no `SKILL.md`,
+state this gate as a no-op. If the validator or its package runtime is
+unavailable for a project that contains skills, record a gap with the exact
+missing prerequisite.
+
 ---
 
 ## Project-Specific Considerations

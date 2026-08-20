@@ -8,6 +8,9 @@ tagged release (see `docs/deployment-readiness.md`).
 
 ### Consistency follow-up
 
+- Added conditional Gate 12 for Agent Skill structure validation with
+  `npx --yes skills-ref validate`, including detector evidence for each
+  `SKILL.md` directory and an explicit no-op for non-skill projects.
 - Corrected the bundled project-detection script path so an installed skill
   does not assume its script exists in the target project.
 - Synced the general guidance with the skill's softened `PSScriptAnalyzer`

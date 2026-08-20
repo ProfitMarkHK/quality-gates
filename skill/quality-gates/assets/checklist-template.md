@@ -33,6 +33,7 @@ parser checks do not replace linting.
 | 9 | Change reviewed | {{STATE}} | manual |
 | 10 | Tracker / ticket reconciled | {{STATE}} | manual |
 | 11 | Implementation aligns with functional & technical specs | {{STATE}} | manual review vs {{SPEC_LOCATION}} |
+| 12 | Agent Skill structure validates | {{STATE}} | `npx --yes skills-ref validate <skill-directory>` for each detected skill |
 
 State legend: **applies** (must pass), **no-op** (does not apply — reason
 given), **gap** (should apply but not yet possible — tracked as work).

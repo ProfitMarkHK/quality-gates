@@ -50,7 +50,9 @@ python /path/to/quality-gates/scripts/detect_project.py /path/to/project
 
 It reports languages, manifests, test setup, linters, type-checkers, security
 tooling, CI config, any existing single-command gate runner, and which
-agent-instruction files already exist. PowerShell source includes `.ps1`,
+agent-instruction files and Agent Skill directories already exist. When it finds
+`SKILL.md`, it reports the skill directory so Gate 12 can validate it. PowerShell
+source includes `.ps1`,
 `.psm1`, and analyzer settings `.psd1` files. It identifies
 `PSScriptAnalyzer` settings or `Invoke-ScriptAnalyzer` invocations, and emits a
 candidate when PowerShell exists without analyzer evidence. It only reads; it
@@ -71,6 +73,11 @@ only when it is not (and say which you used); and check the implementation
 against any functional or technical specification the project has (gate 11) —
 look in `docs/`, `spec/`, `specs/`, API schemas, and the tracker, and if no spec
 exists, state that as a no-op or a gap rather than ignoring it.
+
+For Agent Skill projects (gate 12), run `npx --yes skills-ref validate
+<skill-directory>` once for every detected `SKILL.md` directory. If no Agent
+Skill is detected, record a no-op. If the validator cannot run, record a gap
+with the missing prerequisite; do not silently skip the check.
 
 For PowerShell, parser or syntax validation does not satisfy the linter gate.
 Use `PSScriptAnalyzer` and record its settings file and exact invocation. If
@@ -96,8 +103,10 @@ Define a **single command** that runs every automated gate and exits non-zero on
 any failure — this is what lets the same gates run in a pre-commit hook and in
 merge automation without special setup. Not all gates run in the runner: gates 4
 (coverage), 5 (docs), 9 (review), 10 (ticket), and 11 (spec alignment) require
-human judgement and are not in scope for the runner. They are enforced by the
-done-done block referencing the checklist, not by a command.
+human judgement and are not in scope for the runner. Gate 12 is automated when
+the target contains Agent Skills and belongs in the runner when the project has
+one. Manual gates are enforced by the done-done block referencing the checklist,
+not by a command.
 
 - If the project already has one (`make check`, `./scripts/check.sh`, an
   `npm run check`), reuse it and note any applicable gate it is missing.
