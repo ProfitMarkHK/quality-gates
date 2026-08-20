@@ -8,6 +8,8 @@ tagged release (see `docs/deployment-readiness.md`).
 
 ### Consistency follow-up
 
+- Corrected the bundled project-detection script path so an installed skill
+  does not assume its script exists in the target project.
 - Synced the general guidance with the skill's softened `PSScriptAnalyzer`
   policy and its distinction between automated runner gates and manual gates.
 - Updated deployment readiness to expect the current 9-file package manifest.

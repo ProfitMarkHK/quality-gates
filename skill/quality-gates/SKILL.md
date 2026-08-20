@@ -40,11 +40,11 @@ are guessed rather than grounded in the repo are the main way this goes wrong.
 
 ### Phase 1 — Detect what the project actually uses
 
-Gather evidence before deciding anything. Run the bundled script from the
-project root:
+Gather evidence before deciding anything. Locate the bundled script in the
+quality-gates skill package and run it against the target project:
 
 ```bash
-python scripts/detect_project.py /path/to/project
+python /path/to/quality-gates/scripts/detect_project.py /path/to/project
 # add --json for the full machine-readable report
 ```
 
