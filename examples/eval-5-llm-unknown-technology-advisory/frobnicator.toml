@@ -1,0 +1,13 @@
+[project]
+name = "py-service"
+version = "2.4.1"
+
+[framework]
+# Team is piloting this for the new async ingestion path.
+name = "frobnicate"
+version = "3.1.0"
+
+[build]
+tool = "muddle"
+command = "muddle build --release"
+output_dir = "dist/"
