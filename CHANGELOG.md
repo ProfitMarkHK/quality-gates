@@ -6,6 +6,30 @@ tagged release (see `docs/deployment-readiness.md`).
 
 ## Unreleased
 
+### Live-exercise hardening (real gateway, classification-agent)
+
+First live run against the approved GFO-X coding gateway surfaced three
+brittleness bugs, all fixed and covered by offline tests plus an opt-in live
+smoke test (`tests/test_llm_assessment_live.py`, skipped unless
+`QUALITY_GATES_LIVE_SMOKE=1` with operator `QUALITY_GATES_LLM_*` env set):
+
+- The assessment contract told the model what to look for but never the
+  exact JSON fields, so live output failed validation on extra fields. The
+  contract now states the full response schema, bans anything else, and
+  demands bare JSON.
+- Model output wrapped in markdown fences failed parsing. The seam strips
+  one wrapping fence before parsing; unfenced prose still fails closed.
+- One benign tool-name mention (e.g. "git" in ordinary prose) failed the
+  entire assessment, discarding all valid observations. The advisory-text
+  filter no longer flags bare tool names: only instruction-shaped content
+  (imperatives, install/run verbs, installed/passing claims, code spans,
+  command substitution, hyphenated tool commands) fails, since bare tool
+  mentions in human-validated advisories have no attack path to gates.
+- Live run also needs a larger output budget for verbose models (operator
+  `QUALITY_GATES_LLM_MAX_OUTPUT_TOKENS`, within the model window) and a
+  longer timeout for large inputs; the contract asks for at most 30
+  observations, most significant first.
+
 ### Exclusion hardening (AIDEV-530)
 
 - Fixed the gateway CLI using config before assignment and added CLI tests.

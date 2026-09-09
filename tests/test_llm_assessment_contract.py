@@ -224,6 +224,35 @@ class LlmAssessmentContractTests(unittest.TestCase):
                 {"project.toml"},
             )
 
+    def test_tool_name_mention_in_ordinary_prose_passes_through(self):
+        # Real projects name tools in ordinary prose ("tracks guidance in
+        # git", "standard Python packaging"). Only instruction-shaped or
+        # state-claiming content fails; bare tool names are benign advisory
+        # material for human validation.
+        deterministic = {"gate_states": {"1": "applies"}}
+        result = {
+            "status": "completed",
+            "observations": [{
+                "id": "git-obs",
+                "statement": "The project tracks guidance in git alongside docs.",
+                "source_references": [{
+                    "material_id": "project.toml",
+                    "path": "project.toml",
+                }],
+            }],
+            "uncertainties": [],
+            "recommendations": [{
+                "id": "rec-git",
+                "text": "Can the project owner validate observation git-obs?",
+                "related_observation_ids": ["git-obs"],
+            }],
+            "deterministic_review": deterministic,
+        }
+        validated = validate_result(result, deterministic, {"project.toml"})
+        self.assertIs(validated, result)
+        self.assertEqual(validated["status"], "completed")
+        self.assertEqual([o["id"] for o in validated["observations"]], ["git-obs"])
+
     def test_unavailable_and_partial_results_are_valid_non_blocking_outcomes(self):
         deterministic = {"languages": ["Python"], "gate_states": {"1": "applies"}}
         for status in ("completed", "partial", "unavailable", "timed_out", "failed"):

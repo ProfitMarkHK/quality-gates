@@ -593,6 +593,42 @@ class ExecuteAssessmentTests(unittest.TestCase):
             self.assertIn("inside target", completed.stderr)
 
 
+    def test_fenced_json_model_output_still_completes(self):
+        import tempfile
+
+        deterministic = {"gate_states": {"1": "applies"}}
+        candidate = _completed_candidate(deterministic)
+        fenced = "```json\n" + json.dumps(candidate) + "\n```"
+        gateway_body = {"choices": [{"message": {"content": fenced}}]}
+        behaviors = [(200, gateway_body, {"x-request-id": "req-123"}, 0)]
+        with tempfile.TemporaryDirectory() as tmpdir, FakeGateway(behaviors) as gateway:
+            config = _base_config(gateway.url)
+            package, material_ids = _package(tmpdir, deterministic)
+            result, metadata = execute_assessment(
+                package, deterministic, material_ids, config,
+                auth_headers={}, _counter=FAST_COUNTER,
+            )
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["deterministic_review"], deterministic)
+
+    def test_prose_model_output_stays_failed(self):
+        import tempfile
+
+        deterministic = {"gate_states": {"1": "applies"}}
+        gateway_body = {"choices": [{"message": {"content": "I cannot assess this."}}]}
+        behaviors = [(200, gateway_body, {"x-request-id": "req-123"}, 0)]
+        with tempfile.TemporaryDirectory() as tmpdir, FakeGateway(behaviors) as gateway:
+            config = _base_config(gateway.url)
+            package, material_ids = _package(tmpdir, deterministic)
+            result, metadata = execute_assessment(
+                package, deterministic, material_ids, config,
+                auth_headers={}, _counter=FAST_COUNTER,
+            )
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("not valid JSON", result["failure_reason"])
+        self.assertEqual(result["deterministic_review"], deterministic)
+
+
 if __name__ == "__main__":
     buf = io.StringIO()
     unittest.main(buffer=True)

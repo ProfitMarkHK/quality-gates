@@ -19,6 +19,7 @@ import copy
 import ipaddress
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -84,6 +85,22 @@ class ExecutionConfigError(ValueError):
 def _single_line(value: object, limit: int = 500) -> str:
     text = str(value).strip().replace("\n", " ")
     return text[:limit] if len(text) > limit else text
+
+
+def _strip_code_fences(text: str) -> str:
+    """Remove one wrapping markdown code fence so fenced JSON still parses.
+
+    Only strips when the whole message is a single fenced block; the parsed
+    object still goes through full contract validation afterwards.
+    """
+    stripped = text.strip()
+    if stripped.startswith("```") and stripped.endswith("```") and len(stripped) > 6:
+        inner = stripped[3:-3]
+        newline = inner.find("\n")
+        if newline >= 0 and re.fullmatch(r"[A-Za-z0-9+-]+", inner[:newline].strip()):
+            inner = inner[newline + 1 :]
+        return inner.strip()
+    return stripped
 
 
 def parse_dotenv(path: Path) -> dict[str, str]:
@@ -537,7 +554,7 @@ def execute_assessment(
         if not text:
             return finish(_nonblocking_result("failed", deterministic_review, "gateway response held no usable text"))
         try:
-            candidate = json.loads(text)
+            candidate = json.loads(_strip_code_fences(text))
         except ValueError:
             return finish(_nonblocking_result("failed", deterministic_review, "model output was not valid JSON"))
         try:

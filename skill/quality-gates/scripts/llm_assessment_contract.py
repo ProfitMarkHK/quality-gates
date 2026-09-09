@@ -41,7 +41,22 @@ ASSESSMENT_CONTRACT = (
     "Inspect the supplied target-project material for technology that deterministic "
     "review may not recognise or may have classified ambiguously. Return only "
     "source-backed observations, uncertainty, and recommendations for human "
-    "validation. Do not invent tools, commands, configuration, or gate decisions."
+    "validation. Do not invent tools, commands, configuration, or gate decisions. "
+    "Respond with a single JSON object containing only these fields: "
+    '"status" (exactly one of "completed", "partial", "unavailable", "timed_out", '
+    '"failed"); "observations" (a list of objects each with only "id", "statement", '
+    'and "source_references", where each source reference has only "material_id" '
+    'and "path" naming a supplied material); "uncertainties" (a list of strings); '
+    '"recommendations" (a list of objects each with only "id", "text", and '
+    '"related_observation_ids", where each text is exactly "Can the project owner '
+    'validate observation <id>?" for one observed id); and "deterministic_review" '
+    "(an exact copy of the supplied deterministic review). "
+    "Include no other fields at any level. Return only the JSON object itself: "
+    "no markdown fencing, no commentary, no other text. "
+    "Limit the assessment to at most 30 observations, most significant first; "
+    "omit low-signal naming details that deterministic review already covers. "
+    "Observation and recommendation ids must be short ASCII slugs using only "
+    "letters, digits, dot, underscore, and hyphen (for example obs-1)."
 )
 
 
@@ -389,11 +404,6 @@ def _validate_advisory_text(value: object, label: str) -> None:
         or re.search(
             r"\b[a-z][\w.-]*-[\w.-]*\s+"
             r"(?:check|scan|build|test|run|lint|format|verify|validate)\b",
-            lowered,
-        )
-        or re.search(
-            r"\b(?:npm|pnpm|yarn|pip|python|pytest|ruff|eslint|make|go|"
-            r"cargo|git|docker)\b",
             lowered,
         )
     ):
