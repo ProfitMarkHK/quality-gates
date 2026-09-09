@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from validate_skill import validate  # noqa: E402
 
 EXCLUDE_DIR_NAMES = {"__pycache__", "node_modules", "evals"}
-EXCLUDE_FILE_NAMES = {".DS_Store"}
+EXCLUDE_FILE_NAMES = {".DS_Store", ".env"}
 EXCLUDE_SUFFIXES = (".pyc", ".pyo")
 
 

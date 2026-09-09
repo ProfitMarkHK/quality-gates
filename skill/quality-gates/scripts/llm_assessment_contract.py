@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import fnmatch
 import json
 import os
 import re
@@ -32,6 +33,10 @@ OBSERVATION_FIELDS = {"id", "statement", "source_references"}
 REFERENCE_FIELDS = {"material_id", "path", "locator"}
 RECOMMENDATION_FIELDS = {"id", "text", "related_observation_ids"}
 SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+EXCLUDE_ENV_VAR = "QUALITY_GATES_LLM_EXCLUDE_PATTERNS"
+EXCLUDED_REASON = "excluded by operator config QUALITY_GATES_LLM_EXCLUDE_PATTERNS"
+MAX_EXCLUDE_PATTERNS = 128
+MAX_EXCLUDE_PATTERN_LEN = 256
 ASSESSMENT_CONTRACT = (
     "Inspect the supplied target-project material for technology that deterministic "
     "review may not recognise or may have classified ambiguously. Return only "
@@ -42,6 +47,178 @@ ASSESSMENT_CONTRACT = (
 
 class AssessmentContractError(ValueError):
     """Raised when an advisory result violates the assessment contract."""
+
+
+def parse_exclude_patterns(raw: str | None) -> list[str]:
+    """Parse operator-only exclusion globs. Never read from target content."""
+    if raw is None:
+        return []
+    text = raw.strip()
+    if not text:
+        return []
+    seen: list[str] = []
+    for part in text.split(","):
+        stripped = part.strip()
+        if not stripped or stripped in seen:
+            continue
+        seen.append(stripped)
+    patterns = seen
+    if len(patterns) > MAX_EXCLUDE_PATTERNS:
+        raise AssessmentContractError(
+            f"{EXCLUDE_ENV_VAR} holds too many patterns (max {MAX_EXCLUDE_PATTERNS})"
+        )
+    for pattern in patterns:
+        if (
+            len(pattern) > MAX_EXCLUDE_PATTERN_LEN
+            or "\n" in pattern
+            or "\r" in pattern
+            or "\0" in pattern
+        ):
+            raise AssessmentContractError(
+                f"{EXCLUDE_ENV_VAR} holds an invalid pattern"
+            )
+        if pattern in (".", "./"):
+            raise AssessmentContractError(
+                f"{EXCLUDE_ENV_VAR} holds an invalid pattern"
+            )
+        try:
+            candidate = Path(pattern)
+        except ValueError:
+            raise AssessmentContractError(
+                f"{EXCLUDE_ENV_VAR} holds an invalid pattern"
+            )
+        if candidate.is_absolute() or ".." in candidate.parts:
+            raise AssessmentContractError(
+                f"{EXCLUDE_ENV_VAR} patterns must be repo-relative without '..'"
+            )
+        if "\\" in pattern:
+            raise AssessmentContractError(
+                f"{EXCLUDE_ENV_VAR} patterns must use posix '/' separators"
+            )
+    return patterns
+
+
+def load_exclude_patterns_from_env(env: dict[str, str] | None = None) -> list[str]:
+    """Read exclusion patterns from operator environment only."""
+    source = env if env is not None else os.environ
+    return parse_exclude_patterns(source.get(EXCLUDE_ENV_VAR))
+
+
+def _is_path_inside(child: Path, parent: Path) -> bool:
+    try:
+        child.resolve().relative_to(parent.resolve())
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def load_exclude_patterns_for_target(
+    root: Path, config_dir: Path | None = None
+) -> list[str]:
+    """Load exclusions from operator env plus optional `.env` outside target.
+
+    Refuses when the config directory resolves inside the target project so a
+    target-controlled `.env` can never supply patterns. Contract and execute
+    entry points share this rule.
+    """
+    directory = config_dir if config_dir is not None else Path.cwd()
+    dotenv_path = directory / ".env"
+    if dotenv_path.exists() and _is_path_inside(directory, root):
+        raise AssessmentContractError(
+            f"config directory {directory} resolves inside target {root}; "
+            "run from outside the target so target content cannot supply config"
+        )
+    values: dict[str, str] = {}
+    if dotenv_path.exists():
+        for raw_line in dotenv_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            if key.strip() == EXCLUDE_ENV_VAR:
+                values[key.strip()] = value.strip().strip("'\"")
+    if os.environ.get(EXCLUDE_ENV_VAR) is not None:
+        values[EXCLUDE_ENV_VAR] = os.environ[EXCLUDE_ENV_VAR]
+    return parse_exclude_patterns(values.get(EXCLUDE_ENV_VAR))
+
+
+def _glob_to_regex(pattern: str) -> str:
+    """Translate a repo-relative glob to a full-match regex.
+
+    Shell-style rules: `*` and `?` stay within a path segment, `**` crosses
+    segments, a leading `**/` also matches the top level, and a trailing
+    `/` means everything under that directory.
+    """
+    normalized = pattern.removeprefix("./")
+    trailing_dir = normalized.endswith("/") and len(normalized) > 1
+    if trailing_dir:
+        normalized = normalized.rstrip("/")
+    out: list[str] = []
+    i = 0
+    n = len(normalized)
+    while i < n:
+        char = normalized[i]
+        if char == "*":
+            if normalized[i:i + 2] == "**":
+                if normalized[i:i + 3] == "**/":
+                    out.append("(.*/)?")
+                    i += 3
+                else:
+                    out.append(".*")
+                    i += 2
+            else:
+                out.append("[^/]*")
+                i += 1
+        elif char == "?":
+            out.append("[^/]")
+            i += 1
+        elif char == "[":
+            end = normalized.find("]", i + 1)
+            if end == -1:
+                out.append("\\[")
+                i += 1
+            else:
+                out.append(normalized[i:end + 1])
+                i = end + 1
+        else:
+            out.append(re.escape(char))
+            i += 1
+    body = "".join(out)
+    if trailing_dir:
+        body = f"(?:{body})(?:/.*)?"
+    return f"(?:{body})\\Z"
+
+
+def _is_excluded(material_id: str, patterns: list[str]) -> bool:
+    basename = material_id.rsplit("/", 1)[-1]
+    for pattern in patterns:
+        normalized = pattern.removeprefix("./")
+        if normalized.endswith("/") and len(normalized) > 1:
+            prefix = normalized.rstrip("/")
+            if material_id == prefix or material_id.startswith(prefix + "/"):
+                return True
+            continue
+        if "/" not in normalized:
+            if fnmatch.fnmatchcase(basename, normalized):
+                return True
+            continue
+        try:
+            if re.match(_glob_to_regex(normalized), material_id):
+                return True
+        except re.error:
+            continue
+    return False
+
+
+def _excluded_record(path: Path, root: Path) -> dict:
+    relative = path.relative_to(root).as_posix()
+    return {
+        "material_id": relative,
+        "path": relative,
+        "kind": "excluded",
+        "readable": False,
+        "reason": EXCLUDED_REASON,
+    }
 
 
 def _material_record(path: Path, root: Path) -> dict:
@@ -105,14 +282,26 @@ def _unreadable_record(path: Path, root: Path, error: OSError) -> dict:
     }
 
 
-def build_input_package(root: Path, deterministic_review: dict) -> dict:
+def build_input_package(
+    root: Path,
+    deterministic_review: dict,
+    exclude_patterns: list[str] | None = None,
+) -> dict:
     """Return a complete, JSON-serializable package for the secure LLM.
 
     The project walk intentionally does not reuse detector exclusions. The
     detector decides evidence; this package represents the target material.
     Version-control internals are not project material and are excluded.
+
+    Operator-only `exclude_patterns` (repo-relative globs from
+    QUALITY_GATES_LLM_EXCLUDE_PATTERNS) replace matching file contents with
+    `{readable: False, reason: excluded by operator config ...}` placeholders.
+    Placeholders keep `material_id` stable so result references still validate;
+    nothing is silently dropped. Patterns never come from target content, and
+    `.gitignore` / `.git/info/exclude` are never consulted.
     """
     root = root.resolve()
+    patterns = list(exclude_patterns) if exclude_patterns else []
     materials = []
     def onerror(error: OSError) -> None:
         if error.filename:
@@ -123,12 +312,24 @@ def build_input_package(root: Path, deterministic_review: dict) -> dict:
         for dirname in list(dirnames):
             path = Path(dirpath) / dirname
             if path.is_symlink():
-                materials.append(_material_record(path, root))
+                relative = path.relative_to(root).as_posix()
+                if _is_excluded(relative, patterns):
+                    materials.append(_excluded_record(path, root))
+                else:
+                    materials.append(_material_record(path, root))
                 dirnames.remove(dirname)
         for filename in sorted(filenames):
             if filename == ".git":
                 continue
-            materials.append(_material_record(Path(dirpath) / filename, root))
+            path = Path(dirpath) / filename
+            try:
+                relative = path.relative_to(root).as_posix()
+            except ValueError:
+                continue
+            if _is_excluded(relative, patterns):
+                materials.append(_excluded_record(path, root))
+            else:
+                materials.append(_material_record(path, root))
 
     materials.sort(key=lambda item: item["path"])
     return {
@@ -320,7 +521,14 @@ def main() -> int:
         else:
             with Path(sys.argv[2]).open(encoding="utf-8") as stream:
                 deterministic_review = json.load(stream)
-        package = build_input_package(Path(sys.argv[1]), deterministic_review)
+        try:
+            exclude_patterns = load_exclude_patterns_for_target(Path(sys.argv[1]))
+        except AssessmentContractError as exc:
+            print(f"error: invalid {EXCLUDE_ENV_VAR}: {exc}", file=sys.stderr)
+            return 2
+        package = build_input_package(
+            Path(sys.argv[1]), deterministic_review, exclude_patterns
+        )
     except (OSError, TypeError, ValueError) as exc:
         print(f"error: unable to build assessment input: {exc}", file=sys.stderr)
         return 2
@@ -334,6 +542,18 @@ def main() -> int:
             result = _failed_result(deterministic_review, str(exc))
         print(json.dumps(result, indent=2))
     else:
+        total = len(package["materials"])
+        excluded = sum(1 for item in package["materials"] if item.get("kind") == "excluded")
+        if total and excluded == total:
+            print(
+                f"warning: all {total} materials excluded by {EXCLUDE_ENV_VAR}",
+                file=sys.stderr,
+            )
+        elif excluded:
+            print(
+                f"excluded {excluded} of {total} materials by {EXCLUDE_ENV_VAR}",
+                file=sys.stderr,
+            )
         print(serialize_input_package(package))
     return 0
 

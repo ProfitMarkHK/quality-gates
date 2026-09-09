@@ -31,7 +31,11 @@ package with these parts, in this order. Pipe the detector report into the
 adapter or pass it as a JSON file, then pass a returned JSON result to the
 adapter again for validation. It walks the target project without the
 detector's source exclusions, excluding only version-control internals, and
-records every file or symlink.
+records every file or symlink. The only additional filter is the operator-only
+`QUALITY_GATES_LLM_EXCLUDE_PATTERNS` (env/`.env`, never target content, never
+`.gitignore` or `.git/info/exclude`): matching paths are replaced with
+`{kind: excluded, readable: false, reason: excluded by operator config ...}`
+placeholders so `material_id` stays stable and result references still validate.
 
 1. **Assessment contract** — the fixed instruction above, outside the
    repository-material delimiters.
@@ -116,6 +120,63 @@ gate-mapping and review steps.
 
 Every non-completed state is advisory status. It must be visible in the final
 review and must not block deterministic review completion.
+
+## Gateway execution
+
+The provider-neutral execution seam is `scripts/llm_assessment_execute.py`
+(standard library only). It runs after deterministic evidence collection and
+before gate mapping, sends the fixed contract plus the serialized package as
+untrusted data, and validates every result through the contract validator
+before use. Transport metadata (API style, model, attempt count, elapsed
+time, status, gateway request ID) stays outside the validated advisory
+result. Raw prompts and responses live only in a secure temporary directory
+outside the target project; logs never contain prompts, material, raw
+output, or credentials.
+
+Request policy: OpenAI-compatible chat completions by default,
+Anthropic-compatible messages as the explicitly configured alternative;
+deterministic settings (temperature 0, no tools, no function calling,
+JSON-only response); total deadline 60s by default; at most one retry for
+transient rate-limit or server errors — authentication, configuration,
+validation, malformed-response, and timeout errors are never retried.
+Missing or disabled configuration is `unavailable`; unreachable capability
+is `unavailable`; deadline expiry is `timed_out`; malformed or
+contract-invalid output is `failed`; valid incomplete output is `partial`;
+valid complete output is `completed`. Oversized input fails visibly without
+silent truncation, sampling, or omission.
+
+## Configuration
+
+Operator configuration only — never from target-project content. Process
+environment wins over an optional local `.env` in the invocation
+configuration directory (parsed as data, no shell execution); a missing
+`.env` is valid when required values are exported or the assessment is
+disabled; the real `.env` stays untracked and out of the package, logs, and
+material. Copy `.env.example` (safe placeholders, no internal hostnames or
+secrets; approved values: Confluence page 214336189) to `.env` to begin.
+
+`QUALITY_GATES_LLM_ENABLED` (0/1; unset or 0 means `unavailable`),
+`QUALITY_GATES_LLM_API_STYLE` (`openai` default, `anthropic` alternative),
+`QUALITY_GATES_LLM_ENDPOINT` (complete approved URL including sub-path;
+required when enabled; adapter appends nothing), `QUALITY_GATES_LLM_MODEL`
+(default `GFOX/CA`), optional `QUALITY_GATES_LLM_AUTH_TOKEN` (Bearer when
+set; absent means ambient auth), `QUALITY_GATES_LLM_TIMEOUT_SECONDS` (60),
+`QUALITY_GATES_LLM_MAX_OUTPUT_TOKENS` (3000 configured; effective budget is
+dynamic: `min(configured, 393216 − input_tokens − 512)` via best-effort
+`count_tokens` sizing with bytes/4 fallback),
+`QUALITY_GATES_LLM_MAX_INPUT_BYTES` (200000 local pre-check),
+`QUALITY_GATES_LLM_MAX_RETRIES` (1, hard-capped),
+`QUALITY_GATES_LLM_HTTP_ALLOWLIST` (comma-separated hosts/CIDRs for plain
+`http://`; default office range plus loopback; `https://` always TLS-verified).
+`QUALITY_GATES_LLM_EXCLUDE_PATTERNS` (optional comma-separated repo-relative
+globs; `*`/`?` stay within one segment, `**` crosses segments, leading `**/`
+also matches top level, trailing `/` matches everything under that directory,
+bare names match by basename at any depth; posix `/` only; absolute, `..`,
+control-character, `.`, and backslash patterns fail config validation;
+matching material becomes an `excluded` placeholder, never a
+silent drop; all-excluded packages emit a stderr warning plus
+excluded/total counts in metadata). Run both CLIs from a config directory
+outside the target: a `.env` resolving inside the target is refused.
 
 ## Evaluation scenarios
 

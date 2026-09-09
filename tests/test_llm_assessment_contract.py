@@ -16,6 +16,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 from llm_assessment_contract import (  # noqa: E402
     AssessmentContractError,
     build_input_package,
+    parse_exclude_patterns,
     serialize_input_package,
     validate_result,
 )
@@ -313,6 +314,116 @@ class LlmAssessmentContractTests(unittest.TestCase):
             "llm-repository-injection-boundary",
             "llm-unavailable-is-non-blocking",
         }.issubset(names))
+
+    def test_exclude_patterns_parse_and_reject_unsafe(self):
+        self.assertEqual(parse_exclude_patterns(None), [])
+        self.assertEqual(parse_exclude_patterns(""), [])
+        self.assertEqual(
+            parse_exclude_patterns("uv.lock, config/classification_log.json "),
+            ["uv.lock", "config/classification_log.json"],
+        )
+        self.assertEqual(
+            parse_exclude_patterns("uv.lock, uv.lock,,  config/x.json "),
+            ["uv.lock", "config/x.json"],
+        )
+        for bad in (
+            "/abs/path",
+            "../escape",
+            "a/../../b",
+            "x\ninject",
+            "x\rinject",
+            "x\0inject",
+            ".",
+            "./",
+            "a\\b",
+        ):
+            with self.assertRaises(AssessmentContractError):
+                parse_exclude_patterns(bad)
+
+    def test_exclude_glob_matrix(self):
+        from llm_assessment_contract import _is_excluded
+
+        # * stays within one segment
+        self.assertTrue(_is_excluded("src/a.py", ["src/*"]))
+        self.assertFalse(_is_excluded("src/nested/a.py", ["src/*"]))
+        # ** crosses segments, leading **/ matches top level
+        self.assertTrue(_is_excluded("a.pyc", ["**/*.pyc"]))
+        self.assertTrue(_is_excluded("a/b.pyc", ["**/*.pyc"]))
+        self.assertTrue(_is_excluded("a/b/c.pyc", ["**/*.pyc"]))
+        self.assertFalse(_is_excluded("a.py", ["**/*.pyc"]))
+        # trailing slash matches everything under dir
+        self.assertTrue(_is_excluded("cache/a", ["cache/"]))
+        self.assertTrue(_is_excluded("cache/a/b", ["cache/"]))
+        self.assertFalse(_is_excluded("other/a", ["cache/"]))
+        # bare names match at any depth
+        self.assertTrue(_is_excluded("uv.lock", ["uv.lock"]))
+        self.assertTrue(_is_excluded("a/b/uv.lock", ["uv.lock"]))
+        # ? stays within segment
+        self.assertTrue(_is_excluded("a.py", ["?.py"]))
+        self.assertFalse(_is_excluded("ab.py", ["?.py"]))
+
+    def test_config_dir_inside_target_is_refused(self):
+        import os
+
+        from llm_assessment_contract import load_exclude_patterns_for_target
+
+        deterministic = {"languages": ["Python"]}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "a.py").write_text("x\n", encoding="utf-8")
+            (root / ".env").write_text(
+                "QUALITY_GATES_LLM_EXCLUDE_PATTERNS=uv.lock\n", encoding="utf-8"
+            )
+            old_cwd = os.getcwd()
+            os.chdir(root)
+            try:
+                with self.assertRaises(AssessmentContractError):
+                    load_exclude_patterns_for_target(root)
+            finally:
+                os.chdir(old_cwd)
+            self.assertEqual(load_exclude_patterns_for_target(root), [])
+
+    def test_excluded_files_become_placeholders_not_drops(self):
+        deterministic = {"languages": ["Python"]}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "keep.py").write_text("print('ok')\n", encoding="utf-8")
+            (root / "uv.lock").write_text("x" * 10000, encoding="utf-8")
+            nested = root / "sub"
+            nested.mkdir()
+            (nested / "uv.lock").write_text("y" * 10000, encoding="utf-8")
+            package = build_input_package(root, deterministic, ["uv.lock"])
+            serialized = serialize_input_package(package)
+        materials = {item["material_id"]: item for item in package["materials"]}
+        self.assertEqual(
+            set(materials), {"keep.py", "uv.lock", "sub/uv.lock"}
+        )
+        self.assertEqual(materials["uv.lock"]["kind"], "excluded")
+        self.assertFalse(materials["uv.lock"]["readable"])
+        self.assertIn("operator config", materials["uv.lock"]["reason"])
+        self.assertEqual(materials["sub/uv.lock"]["kind"], "excluded")
+        self.assertNotIn("xxxxxxxxxx", serialized)
+        self.assertIn("keep.py", serialized)
+        # excluded ids remain referenceable
+        result = {
+            "status": "completed",
+            "observations": [{
+                "id": "obs-1",
+                "statement": "The project keeps a lockfile placeholder.",
+                "source_references": [{"material_id": "uv.lock", "path": "uv.lock"}],
+            }],
+            "uncertainties": [],
+            "recommendations": [{
+                "id": "rec-1",
+                "text": "Can the project owner validate observation obs-1?",
+                "related_observation_ids": ["obs-1"],
+            }],
+            "deterministic_review": deterministic,
+        }
+        validate_result(
+            result, deterministic,
+            {item["material_id"] for item in package["materials"]},
+        )
 
 
 if __name__ == "__main__":

@@ -6,6 +6,17 @@ tagged release (see `docs/deployment-readiness.md`).
 
 ## Unreleased
 
+### Exclusion hardening (AIDEV-530)
+
+- Fixed the gateway CLI using config before assignment and added CLI tests.
+- Refused config directories resolving inside the target in both entry points.
+- Replaced cross-segment `fnmatch` with shell-style matching (`*` stays in
+  segment, `**` crosses, leading `**/` matches top level, trailing `/`
+  matches everything under).
+- Rejected carriage-return, null-byte, `.`, and backslash patterns and
+  deduplicated entries.
+- Surfaced excluded/total counts plus an all-excluded stderr warning.
+
 ### Consistency follow-up
 
 - Added conditional Gate 12 for Agent Skill structure validation with
@@ -32,6 +43,13 @@ tagged release (see `docs/deployment-readiness.md`).
   review output.
 - Added evaluation scenarios for unknown technology, repository instruction
   injection, and unavailable LLM capability.
+- Added a provider-neutral gateway execution seam (`llm_assessment_execute.py`)
+  for the approved internal gateway: OpenAI-compatible default with
+  Anthropic-compatible alternative, operator `QUALITY_GATES_LLM_*`
+  configuration with `.env.example`, dynamic output budget against the
+  393216-token model limit, bounded timeout/retry, five lifecycle states that
+  never block deterministic review, and offline fake-gateway tests plus an
+  opt-in live smoke test.
 
 ### Domain model and documentation
 
