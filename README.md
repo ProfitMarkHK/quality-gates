@@ -26,7 +26,7 @@ skill/quality-gates/          the packageable skill — this directory *is* the 
   scripts/llm_assessment_contract.py  secure-LLM input serializer and result validator
   evals/                      test prompts + fixture projects (not shipped in the packaged .skill)
     evals.json                 the test prompts and their pass/fail assertions
-    fixtures.zip                the sample projects each prompt runs against (unzip to evals/files/)
+    fixtures.zip                the sample projects each prompt runs against (unzip to evals/)
 scripts/                      standalone tooling for this repo (no Claude session required)
   validate_skill.py           structural check: frontmatter, size, that Resources links resolve
   package_skill.py            zips skill/quality-gates/ into dist/quality-gates.skill

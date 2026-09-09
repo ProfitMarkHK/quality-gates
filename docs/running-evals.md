@@ -49,7 +49,8 @@ skill/quality-gates/evals/fixtures.zip
 ```
 
 They must be extracted before the evals can run. The extraction target is
-`skill/quality-gates/evals/files/`:
+`skill/quality-gates/evals/` (the zip holds the fixture folders at its top
+level, with no wrapper directory):
 
 ```bash
 cd /path/to/quality-gates
@@ -59,10 +60,10 @@ unzip -o skill/quality-gates/evals/fixtures.zip -d skill/quality-gates/evals/
 After extraction, verify these directories exist:
 
 ```
-skill/quality-gates/evals/files/py-service/
-skill/quality-gates/evals/files/web-dashboard/
-skill/quality-gates/evals/files/backup-scripts/
-skill/quality-gates/evals/files/jsonparser/
+skill/quality-gates/evals/py-service/
+skill/quality-gates/evals/web-dashboard/
+skill/quality-gates/evals/backup-scripts/
+skill/quality-gates/evals/jsonparser/
 ```
 
 > Note: The empty `eval-0` through `eval-4` folders at the repo root are
@@ -149,7 +150,7 @@ mode is subtle and only visible by reading the actual produced files.
 
 ### Missing fixture files
 
-If `skill/quality-gates/evals/files/` is empty or missing subdirectories, the
+If `skill/quality-gates/evals/` is empty or missing subdirectories, the
 fixtures have not been extracted. Re-run the unzip command above.
 
 ### skill-creator unavailable
