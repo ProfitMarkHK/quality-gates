@@ -458,9 +458,11 @@ def _quarantine_write(
     """Retain failing model output for human review; never raises.
 
     Writes a restrictive-permission (0o600) JSON envelope into the operator
-    working directory (never inside the target). The file is operator-owned:
-    there is no auto-cleanup or rotation in v1. On any write failure it
-    returns None so the caller can degrade to metadata-only without failing the
+    working directory (never inside the target). The file is created
+    atomically with 0o600 via O_CREAT|O_EXCL so there is no umask window
+    exposing raw model text. The file is operator-owned: there is no
+    auto-cleanup or rotation in v1. On any write failure it returns None
+    so the caller can degrade to metadata-only without failing the
     assessment.
     """
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S-%fZ")
@@ -473,15 +475,33 @@ def _quarantine_write(
         },
         "raw_text": raw_text,
     }
-    path = working_dir / f"qg-quarantine-{stamp}-{digest}.json"
-    try:
-        path.write_text(
-            json.dumps(envelope, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
-        os.chmod(path, 0o600)
-    except OSError:
-        return None
-    return path
+    data = json.dumps(envelope, indent=2, ensure_ascii=False).encode("utf-8")
+    base = f"qg-quarantine-{stamp}-{digest}"
+    for attempt in range(3):
+        name = base if attempt == 0 else f"{base}-{attempt}"
+        path = working_dir / f"{name}.json"
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            try:
+                if path.read_bytes() == data:
+                    return path
+            except OSError:
+                return None
+            continue
+        except OSError:
+            return None
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(data)
+        except OSError:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            return None
+        return path
+    return None
 
 
 def execute_assessment(
@@ -519,20 +539,24 @@ def execute_assessment(
         return result, metadata
 
     def _retain(raw_text: str, rule: str | None, observation_id: str | None) -> None:
-        """Write one quarantine file and record its path; never raises."""
+        """Write one quarantine file; keep the first good path, never raises.
+
+        A later write failure degrades to metadata-only without clobbering
+        an earlier successful path (double violation keeps the first file).
+        """
         path = _quarantine_write(raw_text, rule, observation_id, quarantine_dir)
-        metadata["quarantine_path"] = str(path) if path is not None else None
-        if path is not None:
-            print(
-                "quality-gates: quarantined failed assessment to "
-                f"{path} (human review only, never loaded into agent context)",
-                file=sys.stderr,
-            )
-        else:
+        if path is None:
             print(
                 "quality-gates: quarantine write failed; proceeded with metadata only",
                 file=sys.stderr,
             )
+            return
+        metadata["quarantine_path"] = str(path)
+        print(
+            "quality-gates: quarantined failed assessment to "
+            f"{path} (human review only, never loaded into agent context)",
+            file=sys.stderr,
+        )
 
     def quarantine_failed(
         raw_text: str,

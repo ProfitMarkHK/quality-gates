@@ -884,6 +884,64 @@ class QuarantineTests(unittest.TestCase):
             )
             self.assertIn(expected, err.getvalue())
 
+    def test_quarantine_perms_ignore_umask(self):
+        # AIDEV-538: the file is created 0o600 atomically; a permissive
+        # umask must not widen it even briefly.
+        import os
+        import tempfile
+
+        deterministic = {"gate_states": {"1": "applies"}}
+        gateway_body = {"choices": [{"message": {"content": "not json at all"}}]}
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as workdir, \
+                FakeGateway([(200, gateway_body, {}, 0)]) as gateway:
+            config = _base_config(gateway.url)
+            package, material_ids = _package(tmpdir, deterministic)
+            old_umask = os.umask(0o022)
+            try:
+                execute_assessment(
+                    package, deterministic, material_ids, config,
+                    auth_headers={}, _counter=FAST_COUNTER,
+                    _working_dir=Path(workdir),
+                )
+            finally:
+                os.umask(old_umask)
+            quarantine = list(Path(workdir).glob("qg-quarantine-*.json"))
+            self.assertEqual(len(quarantine), 1)
+            self.assertEqual(quarantine[0].stat().st_mode & 0o777, 0o600)
+
+    def test_second_write_failure_keeps_first_quarantine_path(self):
+        # AIDEV-538: on a double violation where the second quarantine write
+        # fails, metadata keeps the first successful path (never None).
+        import tempfile
+        from unittest import mock
+
+        import llm_assessment_execute
+
+        deterministic = {"gate_states": {"1": "applies"}}
+        bad1 = _violating_candidate(deterministic)
+        bad2 = _violating_candidate(deterministic)
+        bad2["observations"][0]["statement"] = "run npm install now"
+        behaviors = _success_behaviors(bad1) + _success_behaviors(bad2)
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as workdir, \
+                FakeGateway(behaviors) as gateway:
+            first = Path(workdir) / "qg-quarantine-first.json"
+            first.write_text("{}", encoding="utf-8")
+            config = _base_config(gateway.url)
+            package, material_ids = _package(tmpdir, deterministic)
+            with mock.patch.object(
+                llm_assessment_execute, "_quarantine_write",
+                side_effect=[first, None],
+            ):
+                result, metadata = execute_assessment(
+                    package, deterministic, material_ids, config,
+                    auth_headers={}, _counter=FAST_COUNTER,
+                    _working_dir=Path(workdir),
+                )
+            self.assertEqual(len(gateway.requests), 2)
+            self.assertEqual(result["status"], "failed")
+            self.assertEqual(metadata["attempt_count"], 2)
+            self.assertEqual(metadata["quarantine_path"], str(first))
+
 
 class ViolationMetadataTests(unittest.TestCase):
     """AIDEV-535 / AIDEV-532 slice 3: violation metadata names id + rule only."""
