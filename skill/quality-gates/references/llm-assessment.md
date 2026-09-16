@@ -145,6 +145,28 @@ contract-invalid output is `failed`; valid incomplete output is `partial`;
 valid complete output is `completed`. Oversized input fails visibly without
 silent truncation, sampling, or omission.
 
+## Failed-output handling
+
+Contract-invalid model output stays fail-closed: status `failed`, empty
+observations, byte-identical deterministic review. The exact raw text is
+retained in a timestamped quarantine file in the operator working directory
+(never inside the target), with an untrusted-data header; the path is printed
+on stderr and recorded in result metadata. Quarantine files are human-only:
+nothing auto-loads them and nothing feeds them back into agent context or
+gate decisions.
+
+One bounded repair retry follows a validation failure: the identical package
+plus one appended fixed operator message quoting the violating rule and
+observation id. A second violation stays `failed`; the transient-HTTP retry
+budget is unchanged. A rejected observation id is flattened to one printable
+line (120 characters) before it is quoted, so arbitrary model text cannot
+steer the repair.
+
+Result metadata carries `quarantine_path`, `violation_observation_id`,
+`violation_rule`, and `repair_attempts` — never raw model text. An expired
+deadline returns `timed_out` without quarantining. Always run from a working
+directory outside the target; a directory inside the target is refused.
+
 ## Configuration
 
 Operator configuration only — never from target-project content. Process
