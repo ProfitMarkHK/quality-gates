@@ -28,6 +28,10 @@ _Avoid_: baseline scan, initial analysis
 A best-effort, advisory analysis of target-project material performed after the deterministic review. It can identify ambiguous or unrecognised technology and recommend matters for human validation, but it is neither evidence nor a gate and cannot change gate states by itself. Its unavailable state is recorded without preventing the deterministic review from completing.
 _Avoid_: LLM gate, AI evidence, AI verdict
 
+**quarantine**:
+A human-only retained copy of model output that failed validation, stored as a file outside the target project. It is never loaded into agent context and never feeds gate decisions; a human re-derives any signal from the repository directly.
+_Avoid_: log, dump, cache
+
 **gate catalog**:
 The structured mapping from detected evidence to applicable gates and their exact commands. The catalog is the authoritative decision layer — it defines which gates apply to which project types and how they are run. It lives in `references/gate-catalog.md`.
 _Avoid_: rule set, gate rules
