@@ -13,3 +13,4 @@ When model output violates the assessment contract, the machine path stays fail-
 - Quarantine files accumulate in the working directory; the operator owns retention, there is no auto-cleanup in v1
 - Quarantined content must never be auto-loaded into agent context or gate decisions — the header and stderr wording say so, and tests must assert the target tree is untouched
 - Metadata carries `quarantine_path`, `violation_observation_id`, `violation_rule`, and `repair_attempts`, never raw model text
+- An expired deadline at violation time returns `timed_out` without quarantining the in-hand text; retention applies to failed assessments, not timed-out ones

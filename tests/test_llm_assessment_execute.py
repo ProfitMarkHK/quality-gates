@@ -620,28 +620,33 @@ class ExecuteAssessmentTests(unittest.TestCase):
             self.assertEqual(out["metadata"]["excluded_materials"], 1)
 
     def test_execute_main_refuses_cwd_inside_target(self):
+        # AIDEV-541: refusal holds with or without a .env file, so the
+        # quarantine file can never land inside the target tree.
         import os
         import subprocess
         import sys
         import tempfile
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            (root / "project.toml").write_text("framework = 'x'\n", encoding="utf-8")
-            (root / ".env").write_text(
-                "QUALITY_GATES_LLM_ENABLED=0\n", encoding="utf-8"
-            )
-            det = root / "det.json"
-            det.write_text(json.dumps({"gate_states": {"1": "applies"}}), encoding="utf-8")
-            env = dict(os.environ)
-            env.pop("QUALITY_GATES_LLM_ENABLED", None)
-            completed = subprocess.run(
-                [sys.executable, str(SCRIPT_DIR / "llm_assessment_execute.py"),
-                 str(root), str(det)],
-                check=False, capture_output=True, text=True, cwd=str(root), env=env,
-            )
-            self.assertEqual(completed.returncode, 2)
-            self.assertIn("inside target", completed.stderr)
+        for with_env in (True, False):
+            with self.subTest(with_env=with_env), tempfile.TemporaryDirectory() as tmpdir:
+                root = Path(tmpdir)
+                (root / "project.toml").write_text("framework = 'x'\n", encoding="utf-8")
+                if with_env:
+                    (root / ".env").write_text(
+                        "QUALITY_GATES_LLM_ENABLED=0\n", encoding="utf-8"
+                    )
+                det = root / "det.json"
+                det.write_text(json.dumps({"gate_states": {"1": "applies"}}), encoding="utf-8")
+                env = dict(os.environ)
+                env.pop("QUALITY_GATES_LLM_ENABLED", None)
+                completed = subprocess.run(
+                    [sys.executable, str(SCRIPT_DIR / "llm_assessment_execute.py"),
+                     str(root), str(det)],
+                    check=False, capture_output=True, text=True, cwd=str(root), env=env,
+                )
+                self.assertEqual(completed.returncode, 2)
+                self.assertIn("inside target", completed.stderr)
+                self.assertEqual(list(root.glob("qg-quarantine-*.json")), [])
 
 
     def test_fenced_json_model_output_still_completes(self):

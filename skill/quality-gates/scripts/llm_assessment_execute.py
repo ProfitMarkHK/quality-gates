@@ -846,7 +846,7 @@ def main() -> int:
     try:
         resolved_root = root.resolve()
         resolved_config = config_dir.resolve()
-        if dotenv_path.exists() and (
+        if (
             resolved_config == resolved_root
             or resolved_root in resolved_config.parents
         ):
