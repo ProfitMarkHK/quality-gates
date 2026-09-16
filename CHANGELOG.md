@@ -6,6 +6,22 @@ tagged release (see `docs/deployment-readiness.md`).
 
 ## Unreleased
 
+### Retain failing LLM assessments for human review (AIDEV-532)
+
+When advisory model output violates the assessment contract, the machine
+path stays fail-closed (status `failed`, empty observations, byte-identical
+deterministic review) and the raw text is quarantined to a timestamped file
+in the operator working directory for human review only (AIDEV-534). The
+validator reports the violating observation id and rule in machine-readable
+form (AIDEV-533), recorded in result metadata without raw model text
+(AIDEV-535). One bounded repair retry with fixed operator wording follows a
+validation failure; the transient-HTTP budget is unchanged (AIDEV-536).
+Adversarial-review hardening (AIDEV-538/539/540/541): atomic 0o600 quarantine
+creation, no quarantine-path clobber, no quarantine on repair transport
+failures, sanitized untrusted observation ids, unconditional
+config-inside-target refusal. See
+`skill/quality-gates/docs/adr/0003-quarantine-failed-assessments.md`.
+
 ### Live-exercise hardening (real gateway, classification-agent)
 
 First live run against the approved GFO-X coding gateway surfaced three
