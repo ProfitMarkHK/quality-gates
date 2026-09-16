@@ -346,13 +346,31 @@ def build_anthropic_payload(
     }
 
 
+_ECHO_LIMIT = 120
+
+
+def _sanitize_echo(value: object) -> str:
+    """Flatten model-derived text echoed into prompts, metadata, and logs.
+
+    A rejected observation id reaches this path precisely because it failed
+    identifier validation, so it may be arbitrary model-controlled text.
+    Valid ids pass through byte-identical; anything else is flattened to
+    one printable line capped at _ECHO_LIMIT characters.
+    """
+    if not isinstance(value, str):
+        return ""
+    one_line = value.replace("\r", " ").replace("\n", " ")
+    flat = "".join(char if char.isprintable() else "?" for char in one_line)
+    return flat[:_ECHO_LIMIT]
+
+
 def build_repair_message(rule: str, observation_id: str) -> str:
     """Fixed operator wording for the single bounded repair retry.
 
     Quotes the violation so the model can restate just the flagged material;
     asks for non-instructional prose so the restatement stays advisory.
     """
-    subject = f"observation '{observation_id}'" if observation_id else "the assessment output"
+    subject = f"observation '{_sanitize_echo(observation_id)}'" if observation_id else "the assessment output"
     return (
         "Your previous assessment output failed contract validation "
         f"(rule: {rule}; subject: {subject}). "
@@ -639,7 +657,7 @@ def execute_assessment(
             repair_result = validate_result(repair_candidate, deterministic_review, material_ids)
         except (AssessmentContractError, TypeError, ValueError) as exc:
             latest_rule = getattr(exc, "rule", "")
-            latest_id = getattr(exc, "observation_id", "")
+            latest_id = _sanitize_echo(getattr(exc, "observation_id", ""))
             metadata["violation_rule"] = latest_rule
             metadata["violation_observation_id"] = latest_id
             _retain(repair_text_out, latest_rule, latest_id)
@@ -784,7 +802,7 @@ def execute_assessment(
             # An expired deadline short-circuits to timed_out before any
             # quarantine or repair work; otherwise exactly one repair follows.
             rule = getattr(exc, "rule", "")
-            observation_id = getattr(exc, "observation_id", "")
+            observation_id = _sanitize_echo(getattr(exc, "observation_id", ""))
             metadata["violation_rule"] = rule
             metadata["violation_observation_id"] = observation_id
             if int(deadline - time.monotonic()) <= 0:
