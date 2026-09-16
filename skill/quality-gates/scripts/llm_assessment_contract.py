@@ -61,7 +61,22 @@ ASSESSMENT_CONTRACT = (
 
 
 class AssessmentContractError(ValueError):
-    """Raised when an advisory result violates the assessment contract."""
+    """Raised when an advisory result violates the assessment contract.
+
+    Carries machine-readable violation details alongside the human-readable
+    message: ``rule`` names the rejecting validation rule and ``observation_id``
+    names the specific observation that failed, or is empty when no single
+    observation applies. The message text stays the sole human-readable
+    description and is unchanged.
+    """
+
+    def __init__(self, message, rule="", observation_id=""):
+        super().__init__(message)
+        self.rule = rule
+        # Metadata and the quarantine envelope carry strings only: a
+        # non-string id (e.g. an integer that failed identifier validation)
+        # is recorded as empty rather than leaking a raw value through.
+        self.observation_id = observation_id if isinstance(observation_id, str) else ""
 
 
 def parse_exclude_patterns(raw: str | None) -> list[str]:
@@ -374,8 +389,8 @@ def serialize_input_package(package: dict) -> str:
     ))
 
 
-def _error(message: str) -> None:
-    raise AssessmentContractError(message)
+def _error(message, rule="", observation_id=""):
+    raise AssessmentContractError(message, rule=rule, observation_id=observation_id)
 
 
 def _is_relative_material_path(path: str) -> bool:
@@ -383,14 +398,17 @@ def _is_relative_material_path(path: str) -> bool:
     return not candidate.is_absolute() and ".." not in candidate.parts
 
 
-def _validate_identifier(value: object, label: str) -> None:
+def _validate_identifier(value, label, rule="", observation_id=""):
     if not isinstance(value, str) or not SAFE_IDENTIFIER.fullmatch(value):
-        _error(f"{label} must be a safe identifier")
+        _error(f"{label} must be a safe identifier", rule=rule, observation_id=observation_id)
 
 
-def _validate_advisory_text(value: object, label: str) -> None:
+def _validate_advisory_text(value, label, rule="", observation_id=""):
     if not isinstance(value, str) or not value.strip() or "\n" in value:
-        _error(f"{label} must be a non-empty single-line string")
+        _error(
+            f"{label} must be a non-empty single-line string",
+            rule=rule, observation_id=observation_id,
+        )
     lowered = value.lower()
     if (
         "```" in value
@@ -407,7 +425,10 @@ def _validate_advisory_text(value: object, label: str) -> None:
             lowered,
         )
     ):
-        _error(f"{label} must not contain commands or installed-tool claims")
+        _error(
+            f"{label} must not contain commands or installed-tool claims",
+            rule=rule, observation_id=observation_id,
+        )
 
 
 def _failed_result(deterministic_review: dict, reason: str) -> dict:
@@ -428,90 +449,140 @@ def validate_result(
 ) -> dict:
     """Validate and return an advisory result without changing its values."""
     if not isinstance(result, dict):
-        _error("result must be an object")
+        _error("result must be an object", rule="result_shape")
     unknown_result_fields = set(result) - RESULT_FIELDS
     if unknown_result_fields:
-        _error(f"result has unknown fields: {sorted(unknown_result_fields)}")
+        _error(
+            f"result has unknown fields: {sorted(unknown_result_fields)}",
+            rule="unknown_result_fields",
+        )
 
     status = result.get("status")
     if not isinstance(status, str) or status not in ASSESSMENT_STATUS:
-        _error(f"status must be one of {sorted(ASSESSMENT_STATUS)}")
+        _error(f"status must be one of {sorted(ASSESSMENT_STATUS)}", rule="status")
 
     expected_review = copy.deepcopy(deterministic_review)
     if result.get("deterministic_review") != expected_review:
-        _error("deterministic_review must exactly match the deterministic review")
+        _error(
+            "deterministic_review must exactly match the deterministic review",
+            rule="deterministic_review",
+        )
 
     observations = result.get("observations")
     if not isinstance(observations, list):
-        _error("observations must be a list")
+        _error("observations must be a list", rule="observations_shape")
     observation_ids = set()
     for observation in observations:
         if not isinstance(observation, dict):
-            _error("each observation must be an object")
+            _error("each observation must be an object", rule="observation_shape")
+        observation_id = observation.get("id")
         unknown_observation_fields = set(observation) - OBSERVATION_FIELDS
         if unknown_observation_fields:
-            _error(f"observation has unknown fields: {sorted(unknown_observation_fields)}")
-        observation_id = observation.get("id")
-        _validate_identifier(observation_id, "observation id")
-        _validate_advisory_text(observation.get("statement"), "observation statement")
+            _error(
+                f"observation has unknown fields: {sorted(unknown_observation_fields)}",
+                rule="observation_unknown_fields",
+                observation_id=observation_id if isinstance(observation_id, str) else "",
+            )
+        _validate_identifier(
+            observation_id, "observation id",
+            rule="observation_id_shape", observation_id=observation_id,
+        )
+        _validate_advisory_text(
+            observation.get("statement"), "observation statement",
+            rule="observation_statement", observation_id=observation_id,
+        )
         references = observation.get("source_references")
         if observation_id in observation_ids:
-            _error("observations need unique ids")
+            _error(
+                "observations need unique ids",
+                rule="observation_duplicate_id", observation_id=observation_id,
+            )
         if not isinstance(references, list) or not references:
-            _error(f"observation {observation_id} needs source_references")
+            _error(
+                f"observation {observation_id} needs source_references",
+                rule="observation_source_references", observation_id=observation_id,
+            )
         for reference in references:
             if not isinstance(reference, dict):
-                _error(f"observation {observation_id} has an invalid source reference")
+                _error(
+                    f"observation {observation_id} has an invalid source reference",
+                    rule="observation_source_reference_shape", observation_id=observation_id,
+                )
             unknown_reference_fields = set(reference) - REFERENCE_FIELDS
             if unknown_reference_fields:
-                _error(f"source reference has unknown fields: {sorted(unknown_reference_fields)}")
+                _error(
+                    f"source reference has unknown fields: {sorted(unknown_reference_fields)}",
+                    rule="observation_source_reference_fields", observation_id=observation_id,
+                )
             if (not isinstance(reference.get("material_id"), str)
                     or not isinstance(reference.get("path"), str)
                     or reference["path"] != reference["material_id"]
                     or not _is_relative_material_path(reference["path"])):
-                _error(f"observation {observation_id} has an invalid source reference")
+                _error(
+                    f"observation {observation_id} has an invalid source reference",
+                    rule="observation_source_reference_valid", observation_id=observation_id,
+                )
             if reference["material_id"] not in material_ids:
-                _error(f"observation {observation_id} references unknown material")
+                _error(
+                    f"observation {observation_id} references unknown material",
+                    rule="observation_unknown_material", observation_id=observation_id,
+                )
         observation_ids.add(observation_id)
 
     recommendations = result.get("recommendations")
     if not isinstance(recommendations, list):
-        _error("recommendations must be a list")
+        _error("recommendations must be a list", rule="recommendations_shape")
     for recommendation in recommendations:
         if not isinstance(recommendation, dict):
-            _error("each recommendation must be an object")
+            _error("each recommendation must be an object", rule="recommendation_shape")
         unknown_recommendation_fields = set(recommendation) - RECOMMENDATION_FIELDS
         if unknown_recommendation_fields:
             _error(
-                f"recommendation has unknown fields: {sorted(unknown_recommendation_fields)}"
+                f"recommendation has unknown fields: {sorted(unknown_recommendation_fields)}",
+                rule="recommendation_unknown_fields",
             )
         text = recommendation.get("text", "")
-        _validate_identifier(recommendation.get("id"), "recommendation id")
-        _validate_advisory_text(text, "recommendation text")
+        _validate_identifier(recommendation.get("id"), "recommendation id", rule="recommendation_id")
+        _validate_advisory_text(text, "recommendation text", rule="recommendation_text")
         related = recommendation.get("related_observation_ids", [])
         if (not isinstance(related, list)
                 or any(not isinstance(item, str) for item in related)):
-            _error("recommendation related_observation_ids must be a list")
+            _error(
+                "recommendation related_observation_ids must be a list",
+                rule="recommendation_related_shape",
+            )
         if not set(related).issubset(observation_ids):
-            _error("recommendation references an unknown observation")
+            _error(
+                "recommendation references an unknown observation",
+                rule="recommendation_unknown_observation",
+            )
         if (len(related) != 1
                 or text != f"Can the project owner validate observation {related[0]}?"):
-            _error("recommendations must use the fixed validation-question format")
+            _error(
+                "recommendations must use the fixed validation-question format",
+                rule="recommendation_format",
+            )
 
     uncertainties = result.get("uncertainties")
     if not isinstance(uncertainties, list):
-        _error("uncertainties must be a list of non-empty strings")
+        _error("uncertainties must be a list of non-empty strings", rule="uncertainties_shape")
     for uncertainty in uncertainties:
-        _validate_advisory_text(uncertainty, "uncertainty")
+        _validate_advisory_text(uncertainty, "uncertainty", rule="uncertainty_text")
     if status != "completed" and not result.get("failure_reason"):
-        _error(f"{status} results need failure_reason")
+        _error(
+            f"{status} results need failure_reason",
+            rule="failure_reason_missing",
+        )
     if status != "completed":
         failure_reason = result["failure_reason"]
         if (not isinstance(failure_reason, str)
                 or not failure_reason.strip()
                 or len(failure_reason) > 500
                 or "\n" in failure_reason):
-            _error(f"{status} results need a concise failure_reason")
+            _error(
+                f"{status} results need a concise failure_reason",
+                rule="failure_reason_shape",
+            )
 
     return result
 

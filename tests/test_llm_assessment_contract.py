@@ -224,6 +224,62 @@ class LlmAssessmentContractTests(unittest.TestCase):
                 {"project.toml"},
             )
 
+    def test_contract_error_carries_observation_id_and_rule_for_observation_failure(self):
+        # AIDEV-533 / AIDEV-532 slice 1: observation-specific contract violations
+        # carry the offending observation id and the rejecting rule in a
+        # machine-readable form (AC1).
+        deterministic = {"languages": ["Python"], "gate_states": {"1": "applies"}}
+        result = {
+            "status": "completed",
+            "observations": [{
+                "id": "obs-1",
+                "statement": "The project declares an unfamiliar build tool.",
+                "source_references": [{"material_id": "missing.toml", "path": "missing.toml"}],
+            }],
+            "uncertainties": [],
+            "recommendations": [],
+            "deterministic_review": deterministic,
+        }
+        with self.assertRaises(AssessmentContractError) as ctx:
+            validate_result(result, deterministic, {"project.toml"})
+        self.assertEqual(ctx.exception.observation_id, "obs-1")
+        self.assertEqual(ctx.exception.rule, "observation_unknown_material")
+
+    def test_contract_error_carries_rule_with_empty_id_for_generic_failure(self):
+        # AIDEV-533 / AIDEV-532 slice 1: a violation with no specific
+        # observation carries the rule name with an empty observation id (AC2).
+        deterministic = {"languages": ["Python"], "gate_states": {"1": "applies"}}
+        result = {
+            "status": "completed",
+            "observations": "not-a-list",
+            "deterministic_review": deterministic,
+        }
+        with self.assertRaises(AssessmentContractError) as ctx:
+            validate_result(result, deterministic, set())
+        self.assertEqual(ctx.exception.observation_id, "")
+        self.assertEqual(ctx.exception.rule, "observations_shape")
+
+    def test_contract_error_coerces_non_string_id_to_empty(self):
+        # Code-review finding: an id that fails identifier validation (e.g. an
+        # integer) must not leak a raw non-string value into metadata or the
+        # quarantine envelope.
+        deterministic = {"languages": ["Python"], "gate_states": {"1": "applies"}}
+        result = {
+            "status": "completed",
+            "observations": [{
+                "id": 123,
+                "statement": "The project declares an unfamiliar build tool.",
+                "source_references": [{"material_id": "project.toml", "path": "project.toml"}],
+            }],
+            "uncertainties": [],
+            "recommendations": [],
+            "deterministic_review": deterministic,
+        }
+        with self.assertRaises(AssessmentContractError) as ctx:
+            validate_result(result, deterministic, {"project.toml"})
+        self.assertEqual(ctx.exception.observation_id, "")
+        self.assertEqual(ctx.exception.rule, "observation_id_shape")
+
     def test_tool_name_mention_in_ordinary_prose_passes_through(self):
         # Real projects name tools in ordinary prose ("tracks guidance in
         # git", "standard Python packaging"). Only instruction-shaped or
