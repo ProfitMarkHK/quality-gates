@@ -594,7 +594,9 @@ def execute_assessment(
             with response as resp:
                 repair_raw = resp.read().decode("utf-8")
                 repair_request_id = _request_id(resp.headers)
-                if repair_request_id is not None:
+                if repair_request_id is not None and metadata["gateway_request_id"] is None:
+                    # Keep the violating response id for tracing; the repair
+                    # id is less useful once the first attempt failed.
                     metadata["gateway_request_id"] = repair_request_id
         except urllib.error.HTTPError as exc:
             try:
@@ -616,13 +618,13 @@ def execute_assessment(
         try:
             repair_body = json.loads(repair_raw)
         except ValueError:
-            _retain(repair_raw, rule, observation_id)
+            # Transport-layer bytes, nothing model-authored: no quarantine,
+            # matching the main path for malformed gateway JSON.
             return finish(_nonblocking_result(
                 "failed", deterministic_review, "repair output was not valid JSON",
             ))
         repair_text_out = extract(repair_body)
         if not repair_text_out:
-            _retain(repair_raw, rule, observation_id)
             return finish(_nonblocking_result(
                 "failed", deterministic_review, "repair response held no usable text",
             ))

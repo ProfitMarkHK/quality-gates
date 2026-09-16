@@ -1250,6 +1250,47 @@ class RepairRetryTests(unittest.TestCase):
             self.assertEqual(metadata["repair_attempts"], 1)
             self.assertIn("HTTP 429", result["failure_reason"])
 
+    def test_repair_transport_failures_write_no_quarantine_file(self):
+        # AIDEV-539: transport-layer repair failures quarantine nothing,
+        # matching the main path; only the first (model-text) attempt is kept.
+        import tempfile
+
+        deterministic = {"gate_states": {"1": "applies"}}
+        bad = _violating_candidate(deterministic)
+        for repair_behavior in (
+            (200, "this is not json", {}, 0),
+            (200, {"choices": [{"message": {"content": "   "}}]}, {}, 0),
+        ):
+            behaviors = _success_behaviors(bad) + [repair_behavior]
+            with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as workdir, \
+                    FakeGateway(behaviors) as gateway:
+                result, metadata = self._run(tmpdir, workdir, gateway, deterministic)
+                self.assertEqual(len(gateway.requests), 2)
+                self.assertEqual(result["status"], "failed")
+                self.assertEqual(metadata["attempt_count"], 2)
+                self.assertEqual(metadata["repair_attempts"], 1)
+                quarantine = list(Path(workdir).glob("qg-quarantine-*.json"))
+                self.assertEqual(len(quarantine), 1)
+                self.assertEqual(
+                    Path(metadata["quarantine_path"]).resolve(), quarantine[0].resolve()
+                )
+
+    def test_repair_keeps_violating_request_id(self):
+        # AIDEV-539: metadata keeps the violating response request id, not
+        # the repair response id.
+        import tempfile
+
+        deterministic = {"gate_states": {"1": "applies"}}
+        clean = _completed_candidate(deterministic)
+        bad = _violating_candidate(deterministic)
+        clean_body = {"choices": [{"message": {"content": json.dumps(clean)}}]}
+        behaviors = _success_behaviors(bad) + [(200, clean_body, {"x-request-id": "req-456"}, 0)]
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as workdir, \
+                FakeGateway(behaviors) as gateway:
+            result, metadata = self._run(tmpdir, workdir, gateway, deterministic)
+            self.assertEqual(result["status"], "completed")
+            self.assertEqual(metadata["gateway_request_id"], "req-123")
+
 
 if __name__ == "__main__":
     buf = io.StringIO()
