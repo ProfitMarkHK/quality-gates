@@ -18,6 +18,7 @@ from llm_assessment_contract import build_input_package  # noqa: E402
 from llm_assessment_execute import (  # noqa: E402
     ExecutionConfigError,
     _post_json,
+    build_repair_message,
     effective_max_output,
     estimate_tokens,
     execute_assessment,
@@ -225,22 +226,72 @@ class ExecuteAssessmentTests(unittest.TestCase):
         self.assertEqual(result["status"], "failed")
         self.assertEqual(result["deterministic_review"], deterministic)
 
+    def test_contract_violation_records_observation_id_and_rule_in_metadata(self):
+        # AIDEV-533 / AIDEV-532 slice 1: on a contract violation the execution
+        # seam records the observation id and rule for downstream use without
+        # changing the machine result (AC3).
+        import tempfile
+
+        deterministic = {"gate_states": {"1": "applies"}}
+        bad = _completed_candidate(deterministic)
+        bad["observations"][0]["source_references"] = [{"material_id": "nope.toml", "path": "nope.toml"}]
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as workdir, \
+                FakeGateway(_success_behaviors(bad)) as gateway:
+            config = _base_config(gateway.url)
+            package, material_ids = _package(tmpdir, deterministic)
+            result, metadata = execute_assessment(
+                package, deterministic, material_ids, config,
+                auth_headers={}, _counter=FAST_COUNTER,
+                _working_dir=Path(workdir),
+            )
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["observations"], [])
+        self.assertEqual(result["deterministic_review"], deterministic)
+        self.assertEqual(metadata["violation_rule"], "observation_unknown_material")
+        self.assertEqual(metadata["violation_observation_id"], "unknown-framework")
+
+    def test_contract_violation_without_observation_records_empty_id(self):
+        # AIDEV-533 / AIDEV-532 slice 1: a violation with no specific
+        # observation records the rule with an empty observation id (AC2).
+        import tempfile
+
+        deterministic = {"gate_states": {"1": "applies"}}
+        bad = {"status": "completed", "observations": "not-a-list", "deterministic_review": deterministic}
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as workdir, \
+                FakeGateway(_success_behaviors(bad)) as gateway:
+            config = _base_config(gateway.url)
+            package, material_ids = _package(tmpdir, deterministic)
+            result, metadata = execute_assessment(
+                package, deterministic, material_ids, config,
+                auth_headers={}, _counter=FAST_COUNTER,
+                _working_dir=Path(workdir),
+            )
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(metadata["violation_rule"], "observations_shape")
+        self.assertEqual(metadata["violation_observation_id"], "")
+
     def test_contract_invalid_model_output_is_failed(self):
         import tempfile
 
         deterministic = {"gate_states": {"1": "applies"}}
         bad = _completed_candidate(deterministic)
         bad["observations"][0]["source_references"] = [{"material_id": "nope.toml", "path": "nope.toml"}]
-        with tempfile.TemporaryDirectory() as tmpdir, FakeGateway(_success_behaviors(bad)) as gateway:
+        # AIDEV-536: a violation now earns exactly one repair retry; queue a
+        # second violation so the repair also fails and the contract reason stands.
+        behaviors = _success_behaviors(bad) + _success_behaviors(bad)
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as workdir, \
+                FakeGateway(behaviors) as gateway:
             config = _base_config(gateway.url)
             package, material_ids = _package(tmpdir, deterministic)
-            result, _ = execute_assessment(
+            result, metadata = execute_assessment(
                 package, deterministic, material_ids, config,
                 auth_headers={}, _counter=FAST_COUNTER,
+                _working_dir=Path(workdir),
             )
         self.assertEqual(result["status"], "failed")
         self.assertIn("contract", result["failure_reason"].lower())
         self.assertEqual(result["deterministic_review"], deterministic)
+        self.assertEqual(metadata["repair_attempts"], 1)
 
     def test_timeout_maps_to_timed_out(self):
         import tempfile
@@ -617,16 +668,529 @@ class ExecuteAssessmentTests(unittest.TestCase):
         deterministic = {"gate_states": {"1": "applies"}}
         gateway_body = {"choices": [{"message": {"content": "I cannot assess this."}}]}
         behaviors = [(200, gateway_body, {"x-request-id": "req-123"}, 0)]
-        with tempfile.TemporaryDirectory() as tmpdir, FakeGateway(behaviors) as gateway:
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as workdir, \
+                FakeGateway(behaviors) as gateway:
             config = _base_config(gateway.url)
             package, material_ids = _package(tmpdir, deterministic)
             result, metadata = execute_assessment(
                 package, deterministic, material_ids, config,
                 auth_headers={}, _counter=FAST_COUNTER,
+                _working_dir=Path(workdir),
             )
         self.assertEqual(result["status"], "failed")
         self.assertIn("not valid JSON", result["failure_reason"])
         self.assertEqual(result["deterministic_review"], deterministic)
+
+
+class QuarantineTests(unittest.TestCase):
+    """AIDEV-534 / AIDEV-532 slice 2: quarantine failing model output."""
+
+    def test_execute_main_failed_output_exits_0_and_quarantines(self):
+        # AC1: failing model output → exit 0, status failed, and a quarantine
+        # file appears in the operator working directory (never the target).
+        import os
+        import subprocess
+        import sys
+        import tempfile
+
+        deterministic = {"gate_states": {"1": "applies"}}
+        gateway_body = {"choices": [{"message": {"content": "not json at all"}}]}
+        # First queued behavior serves the count_tokens sizing call; the second is
+        # the model output that fails to parse as JSON.
+        behaviors = [(200, {"input_tokens": 50}, {}, 0), (200, gateway_body, {}, 0)]
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as workdir, \
+                FakeGateway(behaviors) as gateway:
+            root = Path(tmpdir)
+            det = root / "det.json"
+            det.write_text(json.dumps(deterministic), encoding="utf-8")
+            env = dict(os.environ)
+            env["QUALITY_GATES_LLM_ENABLED"] = "1"
+            env["QUALITY_GATES_LLM_ENDPOINT"] = gateway.url
+            env["QUALITY_GATES_LLM_TIMEOUT_SECONDS"] = "10"
+            completed = subprocess.run(
+                [sys.executable, str(SCRIPT_DIR / "llm_assessment_execute.py"),
+                 str(root), str(det)],
+                check=False, capture_output=True, text=True, cwd=workdir, env=env,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            out = json.loads(completed.stdout)
+            self.assertEqual(out["result"]["status"], "failed")
+            self.assertEqual(out["result"]["observations"], [])
+            self.assertIn("not valid JSON", out["result"]["failure_reason"])
+            self.assertEqual(out["result"]["deterministic_review"], deterministic)
+            quarantine = list(Path(workdir).glob("qg-quarantine-*.json"))
+            self.assertEqual(len(quarantine), 1)
+            self.assertEqual(Path(out["metadata"]["quarantine_path"]).resolve(), quarantine[0].resolve())
+            envelope = json.loads(quarantine[0].read_text(encoding="utf-8"))
+            self.assertEqual(envelope["raw_text"], "not json at all")
+            self.assertIn("HUMAN REVIEW ONLY", envelope["header"])
+
+    def test_malformed_model_json_writes_quarantine_file(self):
+        # AC1: failing model output keeps the exact raw text + header in a
+        # timestamped quarantine file in the operator working directory, and the
+        # machine path stays fail-closed with byte-identical deterministic review.
+        import os
+        import tempfile
+
+        deterministic = {"gate_states": {"1": "applies"}}
+        raw_model_text = "This is not valid JSON {{"
+        gateway_body = {"choices": [{"message": {"content": raw_model_text}}]}
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as workdir, \
+                FakeGateway([(200, gateway_body, {}, 0)]) as gateway:
+            config = _base_config(gateway.url)
+            package, material_ids = _package(tmpdir, deterministic)
+            target_before = sorted(p.name for p in Path(tmpdir).iterdir())
+            result, metadata = execute_assessment(
+                package, deterministic, material_ids, config,
+                auth_headers={}, _counter=FAST_COUNTER,
+                _working_dir=Path(workdir),
+            )
+            target_after = sorted(p.name for p in Path(tmpdir).iterdir())
+            self.assertEqual(result["status"], "failed")
+            self.assertEqual(result["observations"], [])
+            self.assertEqual(result["failure_reason"], "model output was not valid JSON")
+            self.assertEqual(result["deterministic_review"], deterministic)
+            self.assertEqual(target_before, target_after)
+            quarantine = list(Path(workdir).glob("qg-quarantine-*.json"))
+            self.assertEqual(len(quarantine), 1)
+            path = quarantine[0]
+            self.assertEqual(metadata["quarantine_path"], str(path))
+            # restrictive permissions
+            self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+            envelope = json.loads(path.read_text(encoding="utf-8"))
+            self.assertIn("HUMAN REVIEW ONLY", envelope["header"])
+            self.assertEqual(envelope["raw_text"], raw_model_text)
+            self.assertEqual(envelope["violation"], {"observation_id": "", "rule": ""})
+            # never raw model text in metadata
+            self.assertNotIn(raw_model_text, json.dumps(metadata))
+
+    def test_contract_violation_quarantine_records_violation_and_raw_text(self):
+        # AC1/AC4 + AIDEV-535 AC1: violation quarantine carries the observation
+        # id + rule in the envelope and the exact raw text, metadata keeps id/rule
+        # and never leaks raw text.
+        import os
+        import tempfile
+
+        deterministic = {"gate_states": {"1": "applies"}}
+        bad = _completed_candidate(deterministic)
+        bad["observations"][0]["source_references"] = [
+            {"material_id": "nope.toml", "path": "nope.toml"}
+        ]
+        raw_text = json.dumps(bad)
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as workdir, \
+                FakeGateway(_success_behaviors(bad)) as gateway:
+            config = _base_config(gateway.url)
+            package, material_ids = _package(tmpdir, deterministic)
+            result, metadata = execute_assessment(
+                package, deterministic, material_ids, config,
+                auth_headers={}, _counter=FAST_COUNTER,
+                _working_dir=Path(workdir),
+            )
+            self.assertEqual(result["status"], "failed")
+            self.assertEqual(result["observations"], [])
+            self.assertEqual(result["deterministic_review"], deterministic)
+            self.assertEqual(metadata["violation_rule"], "observation_unknown_material")
+            self.assertEqual(metadata["violation_observation_id"], "unknown-framework")
+            quarantine = list(Path(workdir).glob("qg-quarantine-*.json"))
+            self.assertEqual(len(quarantine), 1)
+            path = quarantine[0]
+            self.assertEqual(metadata["quarantine_path"], str(path))
+            self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+            envelope = json.loads(path.read_text(encoding="utf-8"))
+            self.assertIn("HUMAN REVIEW ONLY", envelope["header"])
+            self.assertEqual(envelope["raw_text"], raw_text)
+            self.assertEqual(envelope["violation"]["rule"], "observation_unknown_material")
+            self.assertEqual(envelope["violation"]["observation_id"], "unknown-framework")
+            self.assertNotIn("nope.toml", json.dumps(result))
+            self.assertNotIn(raw_text, json.dumps(metadata))
+
+    def test_unreachable_gateway_writes_no_quarantine_file(self):
+        # AC3: unreachable gateway → unavailable, no file.
+        import tempfile
+
+        deterministic = {"gate_states": {"1": "applies"}}
+        with tempfile.TemporaryDirectory() as workdir:
+            config = _base_config("http://127.0.0.1:1/v1/chat/completions")
+            result, metadata = execute_assessment(
+                {"assessment_contract": "c", "deterministic_review": deterministic, "materials": []},
+                deterministic, set(), config, auth_headers={},
+                _counter=FAST_COUNTER, _working_dir=Path(workdir),
+            )
+            self.assertEqual(result["status"], "unavailable")
+            self.assertIsNone(metadata["quarantine_path"])
+            self.assertEqual(list(Path(workdir).glob("qg-quarantine-*.json")), [])
+
+    def test_disabled_gateway_writes_no_quarantine_file(self):
+        # AC3: disabled gateway → unavailable, no file.
+        import tempfile
+
+        deterministic = {"gate_states": {"1": "applies"}}
+        config = load_config(env={})
+        with tempfile.TemporaryDirectory() as workdir:
+            result, metadata = execute_assessment(
+                {"assessment_contract": "c", "deterministic_review": deterministic, "materials": []},
+                deterministic, set(), config,
+                _counter=FAST_COUNTER, _working_dir=Path(workdir),
+            )
+            self.assertEqual(result["status"], "unavailable")
+            self.assertIsNone(metadata["quarantine_path"])
+            self.assertEqual(list(Path(workdir).glob("qg-quarantine-*.json")), [])
+
+    def test_no_usable_model_text_writes_no_quarantine_file(self):
+        # A failure path with no model text to retain records metadata only.
+        import tempfile
+
+        deterministic = {"gate_states": {"1": "applies"}}
+        gateway_body = {"choices": [{"message": {"content": "   "}}]}
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as workdir, \
+                FakeGateway([(200, gateway_body, {}, 0)]) as gateway:
+            config = _base_config(gateway.url)
+            package, material_ids = _package(tmpdir, deterministic)
+            result, metadata = execute_assessment(
+                package, deterministic, material_ids, config,
+                auth_headers={}, _counter=FAST_COUNTER,
+                _working_dir=Path(workdir),
+            )
+            self.assertEqual(result["status"], "failed")
+            self.assertIn("no usable text", result["failure_reason"])
+            self.assertIsNone(metadata["quarantine_path"])
+            self.assertEqual(list(Path(workdir).glob("qg-quarantine-*.json")), [])
+
+    def test_quarantine_stderr_uses_fixed_wording(self):
+        # The quarantine path is printed on stderr with the exact fixed wording.
+        import contextlib
+        import io
+        import tempfile
+
+        deterministic = {"gate_states": {"1": "applies"}}
+        raw_model_text = "not json at all"
+        gateway_body = {"choices": [{"message": {"content": raw_model_text}}]}
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as workdir, \
+                FakeGateway([(200, gateway_body, {}, 0)]) as gateway:
+            config = _base_config(gateway.url)
+            package, material_ids = _package(tmpdir, deterministic)
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                execute_assessment(
+                    package, deterministic, material_ids, config,
+                    auth_headers={}, _counter=FAST_COUNTER,
+                    _working_dir=Path(workdir),
+                )
+            quarantine = list(Path(workdir).glob("qg-quarantine-*.json"))
+            self.assertEqual(len(quarantine), 1)
+            expected = (
+                f"quality-gates: quarantined failed assessment to {quarantine[0]} "
+                "(human review only, never loaded into agent context)"
+            )
+            self.assertIn(expected, err.getvalue())
+
+
+class ViolationMetadataTests(unittest.TestCase):
+    """AIDEV-535 / AIDEV-532 slice 3: violation metadata names id + rule only."""
+
+    def test_validation_failure_metadata_names_id_and_rule(self):
+        # AC1: metadata names the rejecting rule and violating observation id.
+        import tempfile
+
+        deterministic = {"gate_states": {"1": "applies"}}
+        bad = _completed_candidate(deterministic)
+        bad["observations"][0]["statement"] = "run npm install now"
+        bad["observations"][0]["source_references"] = [
+            {"material_id": "project.toml", "path": "project.toml"}
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as workdir, \
+                FakeGateway(_success_behaviors(bad)) as gateway:
+            config = _base_config(gateway.url)
+            package, material_ids = _package(tmpdir, deterministic)
+            result, metadata = execute_assessment(
+                package, deterministic, material_ids, config,
+                auth_headers={}, _counter=FAST_COUNTER,
+                _working_dir=Path(workdir),
+            )
+            self.assertEqual(result["status"], "failed")
+            self.assertEqual(metadata["violation_rule"], "observation_statement")
+            self.assertEqual(metadata["violation_observation_id"], "unknown-framework")
+
+    def test_no_observation_failure_carries_rule_and_empty_id(self):
+        # AC2: no-observation failures carry the rule with an empty observation id.
+        import tempfile
+
+        deterministic = {"gate_states": {"1": "applies"}}
+        bad = {"status": "completed", "observations": "not-a-list", "deterministic_review": deterministic}
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as workdir, \
+                FakeGateway(_success_behaviors(bad)) as gateway:
+            config = _base_config(gateway.url)
+            package, material_ids = _package(tmpdir, deterministic)
+            result, metadata = execute_assessment(
+                package, deterministic, material_ids, config,
+                auth_headers={}, _counter=FAST_COUNTER,
+                _working_dir=Path(workdir),
+            )
+            self.assertEqual(result["status"], "failed")
+            self.assertEqual(metadata["violation_rule"], "observations_shape")
+            self.assertEqual(metadata["violation_observation_id"], "")
+
+    def test_no_raw_model_text_in_metadata_on_any_failure(self):
+        # AC3: raw model text never appears in metadata on any failure path, across
+        # malformed model JSON and contract violations.
+        import tempfile
+
+        raw_texts = ("definitely not json",)
+        candidates = [
+            json.dumps({
+                "status": "completed",
+                "observations": [{
+                    "id": "obs-1",
+                    "statement": "A claim.",
+                    "source_references": [{"material_id": "ghost", "path": "ghost"}],
+                }],
+                "uncertainties": [],
+                "recommendations": [],
+            }),
+        ]
+        cases = [
+            {"choices": [{"message": {"content": raw_texts[0]}}]},
+            {"choices": [{"message": {"content": candidates[0]}}]},
+        ]
+        deterministic = {"gate_states": {"1": "applies"}}
+        for body in cases:
+            with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as workdir, \
+                    FakeGateway([(200, body, {}, 0)]) as gateway:
+                config = _base_config(gateway.url)
+                package, material_ids = _package(tmpdir, deterministic)
+                result, metadata = execute_assessment(
+                    package, deterministic, material_ids, config,
+                    auth_headers={}, _counter=FAST_COUNTER,
+                    _working_dir=Path(workdir),
+                )
+                self.assertEqual(result["status"], "failed")
+                serialized = json.dumps(metadata)
+                self.assertNotIn(raw_texts[0], serialized)
+                self.assertNotIn(candidates[0], serialized)
+
+    def test_success_and_transport_leave_no_violation_metadata(self):
+        # Violation keys stay absent/empty on success and transport failure paths.
+        import tempfile
+
+        deterministic = {"gate_states": {"1": "applies"}}
+        candidate = _completed_candidate(deterministic)
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as workdir, \
+                FakeGateway(_success_behaviors(candidate)) as gateway:
+            config = _base_config(gateway.url)
+            package, material_ids = _package(tmpdir, deterministic)
+            result, metadata = execute_assessment(
+                package, deterministic, material_ids, config,
+                auth_headers={}, _counter=FAST_COUNTER,
+                _working_dir=Path(workdir),
+            )
+            self.assertEqual(result["status"], "completed")
+            self.assertIsNone(metadata["violation_rule"])
+            self.assertIsNone(metadata["violation_observation_id"])
+            self.assertIsNone(metadata["quarantine_path"])
+
+
+def _violating_candidate(deterministic):
+    """A candidate that fails contract validation (unknown material reference)."""
+    bad = _completed_candidate(deterministic)
+    bad["observations"][0]["source_references"] = [
+        {"material_id": "nope.toml", "path": "nope.toml"}
+    ]
+    return bad
+
+
+class _FakeRecord:
+    """Stand-in for an HTTP response exposing .read()/.headers and context protocol."""
+
+    def __init__(self, body_bytes, headers=None):
+        self._body = body_bytes
+        self.headers = headers or {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def read(self):
+        return self._body
+
+
+class RepairRetryTests(unittest.TestCase):
+    """AIDEV-536 / AIDEV-532 slice 4: one bounded repair retry on violation."""
+
+    def _run(self, tmpdir, workdir, gateway, deterministic, style="openai"):
+        config = _base_config(gateway.url, QUALITY_GATES_LLM_API_STYLE=style)
+        package, material_ids = _package(tmpdir, deterministic)
+        return execute_assessment(
+            package, deterministic, material_ids, config,
+            auth_headers={}, _counter=FAST_COUNTER,
+            _working_dir=Path(workdir),
+        )
+
+    def test_violation_triggers_exactly_one_repair_call_and_completes(self):
+        # AC1 + AC: validation failure -> exactly one additional gateway call with
+        # fixed operator wording; attempt count reads 2; clean retry completes.
+        import tempfile
+
+        deterministic = {"gate_states": {"1": "applies"}}
+        clean = _completed_candidate(deterministic)
+        bad = _violating_candidate(deterministic)
+        # First behavior violates; second is the clean repair response.
+        behaviors = _success_behaviors(bad) + _success_behaviors(clean)
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as workdir, \
+                FakeGateway(behaviors) as gateway:
+            result, metadata = self._run(tmpdir, workdir, gateway, deterministic)
+            self.assertEqual(len(gateway.requests), 2)
+            self.assertEqual(result["status"], "completed")
+            self.assertEqual(result["deterministic_review"], deterministic)
+            self.assertEqual(metadata["attempt_count"], 2)
+            self.assertEqual(metadata["repair_attempts"], 1)
+            self.assertEqual(metadata["violation_rule"], "observation_unknown_material")
+            self.assertEqual(metadata["violation_observation_id"], "unknown-framework")
+            # one quarantine file (only the first attempt violated)
+            self.assertEqual(len(list(Path(workdir).glob("qg-quarantine-*.json"))), 1)
+            # the repair payload reuses the identical serialized package + one
+            # appended operator message quoting the violation
+            repair_payload = json.loads(gateway.requests[1]["body"].decode())
+            roles = [m["role"] for m in repair_payload["messages"]]
+            self.assertEqual(roles, ["system", "user", "user"])
+            base_content = repair_payload["messages"][1]["content"]
+            self.assertIn("[ASSESSMENT_CONTRACT]", base_content)
+            self.assertIn("[TARGET_PROJECT_MATERIAL]", base_content)
+            self.assertIn("project.toml", base_content)
+            self.assertEqual(
+                repair_payload["messages"][2]["content"],
+                build_repair_message("observation_unknown_material", "unknown-framework"),
+            )
+
+    def test_anthropic_repair_uses_system_separation_and_append(self):
+        # Same repair treatment for the Anthropic payload builder.
+        import tempfile
+
+        deterministic = {"gate_states": {"1": "applies"}}
+        clean = _completed_candidate(deterministic)
+        bad = _violating_candidate(deterministic)
+        behaviors = _success_behaviors(bad, style="anthropic") + _success_behaviors(clean, style="anthropic")
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as workdir, \
+                FakeGateway(behaviors) as gateway:
+            config = _base_config(
+                gateway.url.replace("/v1/chat/completions", "/v1/messages"),
+                QUALITY_GATES_LLM_API_STYLE="anthropic",
+            )
+            package, material_ids = _package(tmpdir, deterministic)
+            result, metadata = execute_assessment(
+                package, deterministic, material_ids, config,
+                auth_headers={}, _counter=FAST_COUNTER,
+                _working_dir=Path(workdir),
+            )
+            self.assertEqual(len(gateway.requests), 2)
+            self.assertEqual(result["status"], "completed")
+            self.assertEqual(metadata["attempt_count"], 2)
+            self.assertEqual(metadata["repair_attempts"], 1)
+            repair_payload = json.loads(gateway.requests[1]["body"].decode())
+            self.assertIn("system", repair_payload)
+            roles = [m["role"] for m in repair_payload["messages"]]
+            self.assertEqual(roles, ["user", "user"])
+            self.assertEqual(
+                repair_payload["messages"][1]["content"],
+                build_repair_message("observation_unknown_material", "unknown-framework"),
+            )
+
+    def test_double_violation_fails_with_no_third_call_and_two_files(self):
+        # AC2: retry also violates -> status failed, both attempts recorded, no
+        # third call; each attempt writes its own quarantine file.
+        import tempfile
+
+        deterministic = {"gate_states": {"1": "applies"}}
+        bad1 = _violating_candidate(deterministic)
+        bad2 = _violating_candidate(deterministic)
+        bad2["observations"][0]["statement"] = "run npm install now"  # different violation
+        behaviors = _success_behaviors(bad1) + _success_behaviors(bad2)
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as workdir, \
+                FakeGateway(behaviors) as gateway:
+            result, metadata = self._run(tmpdir, workdir, gateway, deterministic)
+            self.assertEqual(len(gateway.requests), 2)
+            self.assertEqual(result["status"], "failed")
+            self.assertEqual(result["observations"], [])
+            self.assertEqual(result["deterministic_review"], deterministic)
+            self.assertEqual(metadata["attempt_count"], 2)
+            self.assertEqual(metadata["repair_attempts"], 1)
+            # latest (repair) violation wins in metadata
+            self.assertEqual(metadata["violation_rule"], "observation_statement")
+            self.assertEqual(metadata["violation_observation_id"], "unknown-framework")
+            quarantine = list(Path(workdir).glob("qg-quarantine-*.json"))
+            self.assertEqual(len(quarantine), 2)
+        self.assertIn("contract", result["failure_reason"].lower())
+
+    def test_repair_payload_quotes_rule_only_when_no_observation(self):
+        # A whole-result violation (no observation id) still gets a repair that
+        # quotes the rule.
+        import tempfile
+
+        deterministic = {"gate_states": {"1": "applies"}}
+        clean = _completed_candidate(deterministic)
+        bad = {"status": "completed", "observations": "not-a-list", "deterministic_review": deterministic}
+        behaviors = _success_behaviors(bad) + _success_behaviors(clean)
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as workdir, \
+                FakeGateway(behaviors) as gateway:
+            result, metadata = self._run(tmpdir, workdir, gateway, deterministic)
+            self.assertEqual(len(gateway.requests), 2)
+            self.assertEqual(result["status"], "completed")
+            self.assertEqual(metadata["attempt_count"], 2)
+            self.assertEqual(metadata["repair_attempts"], 1)
+            repair_payload = json.loads(gateway.requests[1]["body"].decode())
+            self.assertEqual(
+                repair_payload["messages"][2]["content"],
+                build_repair_message("observations_shape", ""),
+            )
+
+    def test_deadline_expired_skips_repair_call(self):
+        # Bounds: check remaining time before the repair; if expired, timed_out with
+        # no additional gateway call.
+        import tempfile
+
+        deterministic = {"gate_states": {"1": "applies"}}
+        bad = _violating_candidate(deterministic)
+        body = json.dumps({"choices": [{"message": {"content": json.dumps(bad)}}]}).encode()
+
+        def slow_opener(endpoint, payload, headers, timeout):
+            time.sleep(1.5)
+            return _FakeRecord(body, {"x-request-id": "req-slow"})
+
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as workdir:
+            config = load_config(env={
+                "QUALITY_GATES_LLM_ENABLED": "1",
+                "QUALITY_GATES_LLM_ENDPOINT": "http://127.0.0.1:9/v1/chat/completions",
+                "QUALITY_GATES_LLM_TIMEOUT_SECONDS": "1",
+            })
+            package, material_ids = _package(tmpdir, deterministic)
+            result, metadata = execute_assessment(
+                package, deterministic, material_ids, config,
+                auth_headers={}, _counter=FAST_COUNTER,
+                _urlopen=slow_opener, _working_dir=Path(workdir),
+            )
+            self.assertEqual(result["status"], "timed_out")
+            self.assertEqual(metadata["attempt_count"], 1)
+            self.assertEqual(metadata["repair_attempts"], 0)
+            # exactly one call: the violating attempt; no repair issued
+            self.assertEqual(list(Path(workdir).glob("qg-quarantine-*.json")), [])
+
+    def test_transient_on_repair_call_is_not_retried(self):
+        # The repair is a single shot: a transient HTTP error on it yields failed
+        # with both attempts recorded and no third call.
+        import tempfile
+
+        deterministic = {"gate_states": {"1": "applies"}}
+        bad = _violating_candidate(deterministic)
+        behaviors = _success_behaviors(bad) + [(429, {"error": "slow down"}, {}, 0)]
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as workdir, \
+                FakeGateway(behaviors) as gateway:
+            result, metadata = self._run(tmpdir, workdir, gateway, deterministic)
+            self.assertEqual(len(gateway.requests), 2)
+            self.assertEqual(result["status"], "failed")
+            self.assertEqual(metadata["attempt_count"], 2)
+            self.assertEqual(metadata["repair_attempts"], 1)
+            self.assertIn("HTTP 429", result["failure_reason"])
 
 
 if __name__ == "__main__":

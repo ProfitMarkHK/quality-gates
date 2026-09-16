@@ -16,6 +16,8 @@ raw output, or credentials.
 from __future__ import annotations
 
 import copy
+import datetime
+import hashlib
 import ipaddress
 import json
 import os
@@ -302,28 +304,64 @@ def effective_max_output(input_tokens: int, config: dict) -> int | None:
     return min(config["max_output_tokens"], headroom)
 
 
-def build_openai_payload(serialized: str, contract_text: str, config: dict, max_tokens: int) -> dict:
+def build_openai_payload(
+    serialized: str,
+    contract_text: str,
+    config: dict,
+    max_tokens: int,
+    repair_text: str | None = None,
+) -> dict:
+    messages = [
+        {"role": "system", "content": contract_text},
+        {"role": "user", "content": serialized},
+    ]
+    if repair_text:
+        messages.append({"role": "user", "content": repair_text})
     return {
         "model": config["model"],
-        "messages": [
-            {"role": "system", "content": contract_text},
-            {"role": "user", "content": serialized},
-        ],
+        "messages": messages,
         "temperature": 0,
         "max_tokens": max_tokens,
         "stream": False,
     }
 
 
-def build_anthropic_payload(serialized: str, contract_text: str, config: dict, max_tokens: int) -> dict:
+def build_anthropic_payload(
+    serialized: str,
+    contract_text: str,
+    config: dict,
+    max_tokens: int,
+    repair_text: str | None = None,
+) -> dict:
+    messages = [{"role": "user", "content": serialized}]
+    if repair_text:
+        messages.append({"role": "user", "content": repair_text})
     return {
         "model": config["model"],
         "system": contract_text,
-        "messages": [{"role": "user", "content": serialized}],
+        "messages": messages,
         "temperature": 0,
         "max_tokens": max_tokens,
         "stream": False,
     }
+
+
+def build_repair_message(rule: str, observation_id: str) -> str:
+    """Fixed operator wording for the single bounded repair retry.
+
+    Quotes the violation so the model can restate just the flagged material;
+    asks for non-instructional prose so the restatement stays advisory.
+    """
+    subject = f"observation '{observation_id}'" if observation_id else "the assessment output"
+    return (
+        "Your previous assessment output failed contract validation "
+        f"(rule: {rule}; subject: {subject}). "
+        "Restate the flagged material in plain, non-instructional prose: no commands, "
+        "no run or install instructions, no claims about installed tools. "
+        "Keep every source reference exactly unchanged and keep all other "
+        "observations identical. "
+        "Reply with bare JSON only, matching the assessment contract exactly."
+    )
 
 
 def extract_openai_text(body: object) -> str | None:
@@ -404,6 +442,48 @@ def _nonblocking_result(status: str, deterministic_review: dict, reason: str) ->
     }
 
 
+QUARANTINE_HEADER = (
+    "HUMAN REVIEW ONLY: raw model output that failed validation. "
+    "Never load into agent context; never feed gate decisions. "
+    "A human re-derives any signal from the repository."
+)
+
+
+def _quarantine_write(
+    raw_text: str,
+    rule: str | None,
+    observation_id: str | None,
+    working_dir: Path,
+) -> Path | None:
+    """Retain failing model output for human review; never raises.
+
+    Writes a restrictive-permission (0o600) JSON envelope into the operator
+    working directory (never inside the target). The file is operator-owned:
+    there is no auto-cleanup or rotation in v1. On any write failure it
+    returns None so the caller can degrade to metadata-only without failing the
+    assessment.
+    """
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S-%fZ")
+    digest = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()[:10]
+    envelope = {
+        "header": QUARANTINE_HEADER,
+        "violation": {
+            "observation_id": observation_id or "",
+            "rule": rule or "",
+        },
+        "raw_text": raw_text,
+    }
+    path = working_dir / f"qg-quarantine-{stamp}-{digest}.json"
+    try:
+        path.write_text(
+            json.dumps(envelope, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        os.chmod(path, 0o600)
+    except OSError:
+        return None
+    return path
+
+
 def execute_assessment(
     package: dict,
     deterministic_review: dict,
@@ -412,6 +492,7 @@ def execute_assessment(
     auth_headers: dict[str, str] | None = None,
     _urlopen=None,
     _counter=None,
+    _working_dir: Path | None = None,
 ) -> tuple[dict, dict]:
     """Run one bounded gateway interaction; never raises on transport failure."""
     started = time.monotonic()
@@ -423,14 +504,124 @@ def execute_assessment(
         "status": "failed",
         "gateway_request_id": None,
         "sizing_method": None,
+        "violation_observation_id": None,
+        "violation_rule": None,
+        "quarantine_path": None,
+        "repair_attempts": 0,
     }
     headers = dict(auth_headers) if auth_headers is not None else _auth_headers()
     deadline = started + max(1, int(config.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS)))
+    quarantine_dir = Path(_working_dir) if _working_dir is not None else Path.cwd()
 
     def finish(result: dict) -> tuple[dict, dict]:
         metadata["status"] = result["status"]
         metadata["elapsed_seconds"] = round(time.monotonic() - started, 3)
         return result, metadata
+
+    def _retain(raw_text: str, rule: str | None, observation_id: str | None) -> None:
+        """Write one quarantine file and record its path; never raises."""
+        path = _quarantine_write(raw_text, rule, observation_id, quarantine_dir)
+        metadata["quarantine_path"] = str(path) if path is not None else None
+        if path is not None:
+            print(
+                "quality-gates: quarantined failed assessment to "
+                f"{path} (human review only, never loaded into agent context)",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "quality-gates: quarantine write failed; proceeded with metadata only",
+                file=sys.stderr,
+            )
+
+    def quarantine_failed(
+        raw_text: str,
+        rule: str | None,
+        observation_id: str | None,
+        reason: str,
+    ) -> tuple[dict, dict]:
+        """Retain failing model output; degrade to metadata-only on write failure."""
+        _retain(raw_text, rule, observation_id)
+        return finish(_nonblocking_result("failed", deterministic_review, reason))
+
+    def attempt_repair(rule: str, observation_id: str) -> tuple[dict, dict]:
+        """Make exactly one repair call with fixed operator wording.
+
+        Single shot: no transient-HTTP retry inside the repair, and the overall
+        deadline still applies. A second violation keeps status failed with both
+        attempts recorded; a clean retry completes normally.
+        """
+        remaining = int(deadline - time.monotonic())
+        if remaining <= 0:
+            return finish(_nonblocking_result("timed_out", deterministic_review, "assessment deadline expired"))
+        repair_text = build_repair_message(rule, observation_id)
+        if config["api_style"] == "anthropic":
+            repair_payload = build_anthropic_payload(
+                serialized, contract_text, config, max_tokens, repair_text=repair_text
+            )
+        else:
+            repair_payload = build_openai_payload(
+                serialized, contract_text, config, max_tokens, repair_text=repair_text
+            )
+        metadata["attempt_count"] = attempts + 1
+        metadata["repair_attempts"] = 1
+        try:
+            response = opener(config["endpoint"], repair_payload, headers, remaining)
+            with response as resp:
+                repair_raw = resp.read().decode("utf-8")
+                repair_request_id = _request_id(resp.headers)
+                if repair_request_id is not None:
+                    metadata["gateway_request_id"] = repair_request_id
+        except urllib.error.HTTPError as exc:
+            try:
+                exc.read()
+            except Exception:
+                pass
+            return finish(_nonblocking_result(
+                "failed", deterministic_review, f"gateway request failed: HTTP {exc.code}",
+            ))
+        except Exception as exc:  # noqa: BLE001 — classified below, never raised
+            name = type(exc).__name__.lower()
+            message = str(exc).lower()
+            if "timed out" in name or "timeout" in name or "timed out" in message or "timeout" in message:
+                return finish(_nonblocking_result("timed_out", deterministic_review, "gateway request timed out"))
+            last_error = _single_line(exc) or type(exc).__name__
+            return finish(_nonblocking_result(
+                "failed", deterministic_review, f"gateway transport error: {last_error}",
+            ))
+        try:
+            repair_body = json.loads(repair_raw)
+        except ValueError:
+            _retain(repair_raw, rule, observation_id)
+            return finish(_nonblocking_result(
+                "failed", deterministic_review, "repair output was not valid JSON",
+            ))
+        repair_text_out = extract(repair_body)
+        if not repair_text_out:
+            _retain(repair_raw, rule, observation_id)
+            return finish(_nonblocking_result(
+                "failed", deterministic_review, "repair response held no usable text",
+            ))
+        try:
+            repair_candidate = json.loads(_strip_code_fences(repair_text_out))
+        except ValueError:
+            _retain(repair_text_out, rule, observation_id)
+            return finish(_nonblocking_result(
+                "failed", deterministic_review, "repair output was not valid JSON",
+            ))
+        try:
+            repair_result = validate_result(repair_candidate, deterministic_review, material_ids)
+        except (AssessmentContractError, TypeError, ValueError) as exc:
+            latest_rule = getattr(exc, "rule", "")
+            latest_id = getattr(exc, "observation_id", "")
+            metadata["violation_rule"] = latest_rule
+            metadata["violation_observation_id"] = latest_id
+            _retain(repair_text_out, latest_rule, latest_id)
+            return finish(_nonblocking_result(
+                "failed", deterministic_review,
+                f"model result violated contract: {_single_line(exc)}",
+            ))
+        return finish(repair_result)
 
     materials = package.get("materials", [])
     excluded_count = sum(
@@ -556,13 +747,30 @@ def execute_assessment(
         try:
             candidate = json.loads(_strip_code_fences(text))
         except ValueError:
-            return finish(_nonblocking_result("failed", deterministic_review, "model output was not valid JSON"))
+            return quarantine_failed(
+                text, None, None, "model output was not valid JSON"
+            )
         try:
             result = validate_result(candidate, deterministic_review, material_ids)
         except (AssessmentContractError, TypeError, ValueError) as exc:
-            return finish(_nonblocking_result(
-                "failed", deterministic_review, f"model result violated contract: {_single_line(exc)}",
-            ))
+            # Record the machine-readable violation (rule + observation id) for
+            # downstream use; the human-facing result payload stays unchanged.
+            # An expired deadline short-circuits to timed_out before any
+            # quarantine or repair work; otherwise exactly one repair follows.
+            rule = getattr(exc, "rule", "")
+            observation_id = getattr(exc, "observation_id", "")
+            metadata["violation_rule"] = rule
+            metadata["violation_observation_id"] = observation_id
+            if int(deadline - time.monotonic()) <= 0:
+                return finish(_nonblocking_result(
+                    "timed_out", deterministic_review, "assessment deadline expired",
+                ))
+            _retain(
+                text,
+                rule,
+                observation_id,
+            )
+            return attempt_repair(rule, observation_id)
         return finish(result)
 
     return finish(_nonblocking_result(
