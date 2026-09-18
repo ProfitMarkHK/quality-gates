@@ -33,6 +33,32 @@ must be green before a task is **done-done**: safe to merge, ship, or close.
 Gates catch regressions and omissions. They do not replace good design or human
 review.
 
+## Setup
+
+Most target projects need no setup beyond the skill itself.
+
+- **Runtime.** Python 3, standard library only. The three scripts
+  (`scripts/detect_project.py`, `scripts/llm_assessment_contract.py`,
+  `scripts/llm_assessment_execute.py`) have no third-party dependencies.
+  Detection is read-only; it never writes to the target project.
+- **Target-side tools are not installed by this skill.** Each gate names its
+  own command (`pytest`, `ruff`, `eslint`, `tsc --noEmit`,
+  `Invoke-ScriptAnalyzer`, `skills-ref`, ...). If a required tool is
+  missing, record a gap — do not invent results.
+- **Optional LLM assessment (off by default).** Copy `.env.example` to
+  `.env` in a configuration directory **outside** the target project, set
+  `QUALITY_GATES_LLM_ENABLED=1` with the approved endpoint and model
+  (approved values: Confluence page 214336189; worked example `GFOX/CA`),
+  and run both CLIs from that directory. A `.env` resolving inside the
+  target is refused and never loaded. With nothing configured the
+  assessment records `unavailable` and the deterministic review still
+  completes. See `references/llm-assessment.md` Configuration for every
+  variable. The real `.env` is never packaged, logged, or sent as target
+  material.
+- **Gate 12 validator.** `npx --yes skills-ref validate <skill-directory>`
+  needs Node/npx. If it cannot run, record a gap with the missing
+  prerequisite, not a no-op.
+
 ## Workflow
 
 Work through four phases. Do not skip the detection phase — gate choices that
@@ -209,6 +235,19 @@ list of agent-instruction files updated or created. Call out any gap that needs
 follow-up work (most often: the project has no tests, or a linter that should be
 configured is not).
 
+## Developer notes (skill authors only — skip for target reviews)
+
+- The skill's own development loop (evals, fixtures, packaging, release
+  checklist) lives in the source repository (`README.md`,
+  `docs/deployment-readiness.md`, `docs/running-evals.md`), not in this
+  package. `evals/` is development-time only and is never shipped.
+- `CONTEXT.md` is the skill glossary; `docs/adr/` records the Clean,
+  PSScriptAnalyzer, and quarantine decisions. Read them when changing the
+  skill, not when applying it to a target.
+- A behavioural change to `SKILL.md`, `references/`, `assets/`, or
+  `scripts/detect_project.py` must be re-run against the eval suite in a
+  real Claude session before release.
+
 ## Resources
 
 - `references/gate-catalog.md` — the menu of gates, the three-state decision
@@ -226,3 +265,9 @@ configured is not).
 - `scripts/detect_project.py` — read-only project scanner used in Phase 1.
 - `assets/checklist-template.md` — template for the project checklist doc.
 - `assets/done-done-block.md` — template for the instruction-file block.
+- `.env.example` — placeholder operator configuration for the optional LLM
+  assessment. Copy to `.env` outside the target; the real file is never
+  shipped.
+- `CONTEXT.md` — skill glossary. Background for skill authors.
+- `docs/adr/` — decision records (Clean preference, PSScriptAnalyzer policy,
+  quarantine design). Background for skill authors.

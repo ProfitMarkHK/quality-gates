@@ -200,7 +200,7 @@ silent drop; all-excluded packages emit a stderr warning plus
 excluded/total counts in metadata). Run both CLIs from a config directory
 outside the target: a `.env` resolving inside the target is refused.
 
-## Evaluation scenarios
+## Developer notes — evaluation scenarios (skill authors only)
 
 The development evals cover three invariants:
 

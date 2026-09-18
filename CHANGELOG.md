@@ -6,6 +6,18 @@ tagged release (see `docs/deployment-readiness.md`).
 
 ## Unreleased
 
+### Marketplace 0.3.0: target setup docs and full file set
+
+Added a `Setup` section to `SKILL.md` covering runtime (Python 3 stdlib
+only), target-side tools (surfaced as gaps, never invented), the optional
+LLM assessment `.env` configuration outside the target, and the Gate 12
+`skills-ref` prerequisite. Moved skill-author material into a `Developer
+notes` section (`SKILL.md`) and marked the eval scenarios in
+`references/llm-assessment.md` as author-only. Listed `.env.example`,
+`CONTEXT.md`, and `docs/adr/` in `Resources` so the shipped 14-file package
+and the marketplace allowlist match. No gate, contract, or detector
+behaviour changed.
+
 ### Retain failing LLM assessments for human review (AIDEV-532)
 
 When advisory model output violates the assessment contract, the machine
