@@ -6,6 +6,18 @@ tagged release (see `docs/deployment-readiness.md`).
 
 ## Unreleased
 
+### Harden `.env.example` exclusion patterns
+
+Field experience on a large target (18,619 materials, ~900MB venv): the old
+example missed nested caches (plain `.pytest_cache/**` does not match nested
+copies — the `**/` form is required), and had nothing for logs, secrets
+(`.env`, credential dirs — `.gitignore` is never consulted, and unexcluded
+binaries are base64-embedded into the package). The example now ships the
+31-pattern hardened set (lockfiles, venv, bytecode/caches, `data/`,
+logs/jsonl, `.DS_Store`, secrets, reports/coverage, media/archive/data
+binaries) with a comment explaining the `**/` and bare-basename rules.
+Docs-only change; no contract or detector behaviour changed.
+
 ### Fix inverted hermetic env guard in the test suite
 
 `tests/conftest.py` only stripped exported `QUALITY_GATES_LLM_*` operator
