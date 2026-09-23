@@ -6,6 +6,17 @@ tagged release (see `docs/deployment-readiness.md`).
 
 ## Unreleased
 
+### Fix inverted hermetic env guard in the test suite
+
+`tests/conftest.py` only stripped exported `QUALITY_GATES_LLM_*` operator
+variables when `QUALITY_GATES_LIVE_SMOKE=1`, the opposite of its documented
+intent. With gateway config exported and the live flag off, the variables
+leaked into unit tests (`test_config_dir_inside_target_is_refused` failed,
+and a unit test could reach a real gateway). The guard now strips them for
+every non-live test regardless of the flag; the live module keeps its env.
+`tests/test_conftest_hermetic.py` runs the real conftest in a child pytest
+process to lock this in. Test-only change; no skill behaviour changed.
+
 ### Marketplace 0.3.0: target setup docs and full file set
 
 Added a `Setup` section to `SKILL.md` covering runtime (Python 3 stdlib
