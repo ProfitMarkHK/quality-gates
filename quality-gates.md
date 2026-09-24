@@ -74,8 +74,11 @@ installing it; do not silently treat it as a no-op or fail the runner closed.
 cyclomatic complexity of **10 or less — strict, no grandfathering.** Existing
 violations are fixed, not baselined. Test files are **excluded** from the
 budget. Python projects enforce with `ruff check --select C901`
-(`mccabe-complexity = 10`) plus strict
-`xenon --max-absolute B --max-modules B --max-average A` scoped to source;
+(`mccabe-complexity = 10`) scoped to source — the canonical measure — plus,
+where adopted, strict
+`xenon --max-absolute B --max-modules B --max-average B` (xenon grades the
+same code harder than ruff, so it is an opt-in companion, not the default
+reading of "10");
 other languages use their detected equivalent (`eslint` `complexity` 10,
 `gocyclo -over 10`, `lizard -C 10`). When the budget is violated, split the
 function — do not raise the threshold to force a pass.

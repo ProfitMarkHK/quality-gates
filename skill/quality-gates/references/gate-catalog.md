@@ -96,7 +96,7 @@ only wire what Phase 1 detected, never copy an example blindly):
 
 | Language        | Complexity enforcement (max 10, tests excluded) |
 |-----------------|--------------------------------------------------|
-| Python          | `ruff check --select C901` with `mccabe-complexity = 10` in `pyproject.toml`/`ruff.toml`, **plus** strict `xenon --max-absolute B --max-modules B --max-average A --exclude "tests/*,test_*.py,*_test.py" <src>` |
+| Python          | `ruff check --select C901` (canonical: `mccabe-complexity = 10` in `pyproject.toml`/`ruff.toml`); strict companion where adopted: `xenon --max-absolute B --max-modules B --max-average B --exclude "tests/*,test_*.py,*_test.py" <src>` |
 | TypeScript / JS | `eslint` rule `"complexity": ["error", 10]` |
 | Go              | `gocyclo -over 10 .` or `golangci-lint` `cyclop` with `max-complexity: 10` |
 | Ruby            | `rubocop` `Metrics/CyclomaticComplexity: Max: 10` |
@@ -109,6 +109,14 @@ entry and a checklist update with its reason. A per-function waiver
 (`# noqa: C901`, `// eslint-disable-next-line complexity`) is allowed only with
 a one-line reason recorded in the checklist; blanket file exclusions beyond
 tests are a gate failure, not a waiver.
+
+**Canonical measure.** The budget is McCabe complexity of 10 or less **as
+computed by `ruff check --select C901`** (or the per-language equivalent
+above). xenon grades the same code roughly 1–5 points higher per function,
+so `xenon --max-absolute B` is a strictly harder bar: adopt it as an
+opt-in companion where a project wants it, never as the default reading of
+"10". (Measured against this repo: ruff green everywhere, xenon B failing
+15 blocks with a B average — hence `--max-average B`, not A.)
 
 - No-op only if nothing applies (e.g. prose-only repo, or Bash/PowerShell-only
   with no measurable complexity tool) — and say so.

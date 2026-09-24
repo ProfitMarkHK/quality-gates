@@ -19,8 +19,9 @@ intentional rule exclusions, and whether missing tooling fails closed. Syntax or
 parser checks do not replace linting. Gate 3 includes the complexity budget:
 strict max cyclomatic complexity 10 per function/method, tests excluded, no
 grandfathering — record its exact command alongside the linter (e.g. Python:
-`ruff check --select C901` with `mccabe-complexity = 10` plus
-`xenon --max-absolute B --max-modules B --max-average A` scoped to source).
+`ruff check --select C901` with `mccabe-complexity = 10` scoped to source,
+plus `xenon --max-absolute B --max-modules B --max-average B` where the
+project adopts the strict companion).
 
 ## Gates
 

@@ -40,6 +40,21 @@ All unit tests pass with no behavior change. Still pending per this repo's
 own done-done: the eval-suite re-run in a Claude session (manual gate —
 cannot be waved through by a script).
 
+Gate clarification (same session, recorded as a threshold correction with
+its reason): ruff C901 ≤10 is the canonical measure; xenon is an opt-in
+stricter companion, not a second reading of "10". Measured against this
+repo with xenon 0.9.3 (pipx install, system Python untouched): xenon
+grades the same code ~1–5 points higher per function — ruff green
+everywhere, xenon B failing 15 blocks with a B average — so the
+`--max-average A` first written here was unenforceable fail-closed and is
+corrected to B. xenon-strict adoption is scheduled follow-up, itemized so
+it cannot rot into a silent gap: `contract.py` `_validate_advisory_text`,
+`_collapse_pattern_for_dir`, `main`, `load_exclude_patterns_for_target`,
+`_glob_to_regex`; `detect_project.py` `summarize`, `_detect_gate_runner`;
+`execute.py` `measure_input_tokens`, `extract_openai_text`, `load_config`,
+`_http_host_allowed`, `_quarantine_write`, `main`, `parse_dotenv`,
+`_run_attempt_loop`; plus the B average.
+
 ### Soften advisory-text rule for descriptive configured plus hedges (AIDEV-548)
 
 The validator rejected benign descriptive prose — a live quarantine flagged

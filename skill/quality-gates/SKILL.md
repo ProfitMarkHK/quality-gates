@@ -167,8 +167,8 @@ the target contains Agent Skills and belongs in the runner when the project has
 one. Gate 3's complexity budget (strict max 10 per function/method, tests
 excluded, no grandfathering) is automated wherever Gate 3 applies and belongs
 in the runner alongside the linters — e.g. Python targets run
-`ruff check --select C901` plus strict `xenon --max-absolute B` scoped to
-source. Manual gates are enforced by the done-done block referencing the checklist,
+`ruff check --select C901` scoped to source (plus strict
+`xenon --max-absolute B` where the project adopts the companion). Manual gates are enforced by the done-done block referencing the checklist,
 not by a command.
 
 - If the project already has one (`make check`, `./scripts/check.sh`, an
