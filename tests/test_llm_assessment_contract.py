@@ -64,6 +64,28 @@ class LlmAssessmentContractTests(unittest.TestCase):
         self.assertIn("must not change applies, no-op, or gap states", reference_text)
         self.assertIn("no executable command", reference_text)
 
+    def test_assessment_contract_calibrates_for_gate_relevance_aidev_549(self):
+        from llm_assessment_contract import ASSESSMENT_CONTRACT
+
+        folded = " ".join(ASSESSMENT_CONTRACT.split())
+        self.assertIn("both absent from the deterministic review and gate-relevant", folded)
+        self.assertIn("standard library", folded)
+        self.assertIn("manifest-pinned versions", folded)
+        self.assertIn("Group related items into one observation", folded)
+        self.assertIn("at most 8 observations", folded)
+        self.assertIn("empty is valid", folded)
+        self.assertNotIn("at most 30 observations", folded)
+        # Category-based, not a package blocklist: no stack-specific names.
+        for name in ("pytest", "requests", "hatchling", "uv", "shutil", "gtest", "cmake"):
+            self.assertNotIn(name, ASSESSMENT_CONTRACT)
+
+    def test_reference_mirrors_gate_relevant_calibration_aidev_549(self):
+        folded = " ".join(self.reference_text.split())
+        self.assertIn("both absent from the deterministic review and gate-relevant", folded)
+        self.assertIn("standard library", folded)
+        self.assertIn("at most 8", folded)
+        self.assertIn("empty is valid", folded)
+
     def test_input_package_preserves_all_material_as_delimited_data(self):
         deterministic = {"languages": ["Python"], "gate_states": {"1": "applies"}}
         with tempfile.TemporaryDirectory() as temp_dir:

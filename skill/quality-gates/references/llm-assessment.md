@@ -19,8 +19,15 @@ available evidence is ambiguous.
    cannot decide a gate state.
 
 The fixed assessment instruction is: inspect the supplied target-project
-material for technology that deterministic review may not recognise or may have
-classified ambiguously. Return only source-backed observations, uncertainty,
+material for technology that is both absent from the deterministic review
+and gate-relevant — a language, framework, or tool the detector did not name
+where it changes gate mapping, or auth/secret handling, custom build/test/
+security tooling, or vendored code a human must verify. Do not report the
+detected language's standard library, third-party dependencies used at their
+manifest-pinned versions, or generic HTTP, serialization, test-runner, or
+build/packaging libraries unless custom-configured in a gate-relevant way.
+Group related items into one observation (at most 8, most significant first;
+empty is valid). Return only source-backed observations, uncertainty,
 and questions or recommendations for human validation. Do not invent tools,
 commands, configuration, or gate decisions.
 

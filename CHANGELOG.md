@@ -6,6 +6,10 @@ tagged release (see `docs/deployment-readiness.md`).
 
 ## Unreleased
 
+### Calibrate advisory observations to cut dependency noise (AIDEV-549)
+
+Live runs filled all 30 observation slots with one-per-dependency filler (each manifest dependency and standard-library module as a custom technology). The fixed assessment contract now requires gate-relevance (absent from the deterministic review AND changing gate mapping, or auth/secret handling, custom build/test/security tooling, vendored code), excludes by category (detected-language standard library, manifest-pinned versions, generic HTTP/serialization/test/build libs unless custom-configured), groups related items, caps at 8 with empty valid. Category-based so it transfers across stacks — no package blocklist.
+
 ### Self-describing quarantine envelopes plus a display-only reader (AIDEV-547)
 
 Quarantine files held the full model output as one escaped `raw_text`
