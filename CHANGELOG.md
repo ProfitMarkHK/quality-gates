@@ -6,6 +6,40 @@ tagged release (see `docs/deployment-readiness.md`).
 
 ## Unreleased
 
+### Cyclomatic complexity budget as Gate 3b
+
+Gate 3 now includes a strict complexity budget: max cyclomatic complexity 10
+per function/method, tests excluded, no grandfathering — violations are fixed
+by splitting the function, never by raising the threshold. Python enforces
+with `ruff check --select C901` (`mccabe-complexity = 10`) plus strict
+`xenon --max-absolute B --max-modules B --max-average A` scoped to source;
+other languages use their detected equivalent (`eslint` `complexity` 10,
+`gocyclo -over 10` / cyclop 10, `lizard -C 10`); Bash/PowerShell-only projects
+state a no-op. `detect_project.py` reports a new `complexity` evidence key
+(ruff-C901, xenon, eslint-complexity, gocyclo/cyclop, lizard, plus
+`(candidate)` gaps when source exists without wiring) with a `Complexity`
+summary line; the checklist template's Gate 3 row and `SKILL.md` Phase 3
+runner rule name the budget explicitly. Mirrored in `quality-gates.md`
+criterion 3 and `references/gate-catalog.md` Gate 3 per the docs-sync rule.
+
+Self-application (no grandfathering): the new budget failed closed on this
+repo's own source, so every violation was fixed by splitting, not waived:
+`detect_project.py::detect` split into module-level walk / package /
+build-CI / tool-evidence / complexity / runner / spec helpers;
+`llm_assessment_execute.py::execute_assessment` restructured into an
+`_AssessmentRun` phase class (prepare / fetch / settle / repair / loop
+methods — nested closures count toward the outer C901 score, so nesting
+alone could not fix it); `validate_result` split into head / observation /
+reference / recommendation / tail validators; plus smaller splits in
+`build_input_package`, `build_redacted_preview`, `build_offending_items`,
+`parse_exclude_patterns`, `_quarantine_write`, `validate_skill.validate`,
+and `quarantine_read.summarize`. Root `pyproject.toml` wires the budget
+(`mccabe-complexity = 10`, tests/examples excluded) — the detector now
+reports `Complexity: ruff-C901` on this repo instead of the candidate gap.
+All unit tests pass with no behavior change. Still pending per this repo's
+own done-done: the eval-suite re-run in a Claude session (manual gate —
+cannot be waved through by a script).
+
 ### Soften advisory-text rule for descriptive configured plus hedges (AIDEV-548)
 
 The validator rejected benign descriptive prose — a live quarantine flagged

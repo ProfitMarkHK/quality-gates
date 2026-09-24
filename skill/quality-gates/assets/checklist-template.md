@@ -16,7 +16,11 @@ also works in pre-commit hooks and merge automation.
 For each language-specific lint gate, record the exact command, settings file,
 tool prerequisite or module installation, minimum version if relevant, any
 intentional rule exclusions, and whether missing tooling fails closed. Syntax or
-parser checks do not replace linting.
+parser checks do not replace linting. Gate 3 includes the complexity budget:
+strict max cyclomatic complexity 10 per function/method, tests excluded, no
+grandfathering — record its exact command alongside the linter (e.g. Python:
+`ruff check --select C901` with `mccabe-complexity = 10` plus
+`xenon --max-absolute B --max-modules B --max-average A` scoped to source).
 
 ## Gates
 
@@ -24,7 +28,7 @@ parser checks do not replace linting.
 |---|------|-------|----------------|
 | 1 | All tests pass | {{STATE}} | {{DETAIL}} |
 | 2 | End-to-end / acceptance tests pass | {{STATE}} | {{DETAIL}} |
-| 3 | Linters / formatters / static analysis pass | {{STATE}} | {{DETAIL}} |
+| 3 | Linters / formatters / static analysis pass (incl. complexity ≤ 10, tests excluded) | {{STATE}} | {{DETAIL}} |
 | 4 | New code covered by non-trivial tests | {{STATE}} | manual review |
 | 5 | Documentation updated | {{STATE}} | manual review |
 | 6 | Type checking passes | {{STATE}} | {{DETAIL}} |

@@ -111,5 +111,70 @@ class DetectAgentSkillTests(unittest.TestCase):
         self.assertIn("Agent skills", summarize(report))
 
 
+class DetectComplexityTests(unittest.TestCase):
+    def test_detects_ruff_c901_via_pyproject(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "app.py").write_text("def f():\n    pass\n", encoding="utf-8")
+            (root / "pyproject.toml").write_text(
+                "[tool.ruff.lint.mccabe]\nmax-complexity = 10\n"
+                "[tool.ruff.lint]\nselect = [\"C901\"]\n",
+                encoding="utf-8",
+            )
+
+            report = detect(root)
+
+        self.assertIn("ruff-C901", report["complexity"])
+        self.assertTrue(report["complexity"]["ruff-C901"]["in_pyproject"])
+        self.assertIn("Complexity", summarize(report))
+
+    def test_detects_xenon_via_runner_invocation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "app.py").write_text("def f():\n    pass\n", encoding="utf-8")
+            (root / "Makefile").write_text(
+                "check:\n\txenon --max-absolute B src/\n",
+                encoding="utf-8",
+            )
+
+            report = detect(root)
+
+        self.assertIn("xenon", report["complexity"])
+        self.assertTrue(report["complexity"]["xenon"]["in_build_or_ci"])
+
+    def test_reports_candidate_when_python_has_no_complexity_wiring(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "app.py").write_text("def f():\n    pass\n", encoding="utf-8")
+
+            report = detect(root)
+
+        self.assertIn("ruff-C901/xenon (candidate)", report["complexity"])
+        self.assertIn("C901", report["complexity"]["ruff-C901/xenon (candidate)"]["note"])
+
+    def test_detects_eslint_complexity_rule(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "app.ts").write_text("export const f = () => 1;\n", encoding="utf-8")
+            (root / "eslint.config.js").write_text(
+                "export default [{ rules: { complexity: ['error', 10] } }];\n",
+                encoding="utf-8",
+            )
+
+            report = detect(root)
+
+        self.assertIn("eslint-complexity", report["complexity"])
+
+    def test_no_complexity_candidate_for_prose_only_repo(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "README.md").write_text("# docs\n", encoding="utf-8")
+
+            report = detect(root)
+
+        self.assertEqual(report["complexity"], {})
+        self.assertIn("Complexity", summarize(report))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -70,6 +70,16 @@ settings file and record the exact `Invoke-ScriptAnalyzer` command. If
 `PSScriptAnalyzer` is unavailable, mark the gate as a gap and strongly recommend
 installing it; do not silently treat it as a no-op or fail the runner closed.
 
+**Complexity budget — part of this gate.** Every function/method must have a
+cyclomatic complexity of **10 or less — strict, no grandfathering.** Existing
+violations are fixed, not baselined. Test files are **excluded** from the
+budget. Python projects enforce with `ruff check --select C901`
+(`mccabe-complexity = 10`) plus strict
+`xenon --max-absolute B --max-modules B --max-average A` scoped to source;
+other languages use their detected equivalent (`eslint` `complexity` 10,
+`gocyclo -over 10`, `lizard -C 10`). When the budget is violated, split the
+function — do not raise the threshold to force a pass.
+
 If no linter applies, this gate is a no-op — but it must be stated as such,
 not silently skipped.
 

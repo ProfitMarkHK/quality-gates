@@ -164,7 +164,11 @@ merge automation without special setup. Not all gates run in the runner: gates 4
 (coverage), 5 (docs), 9 (review), 10 (ticket), and 11 (spec alignment) require
 human judgement and are not in scope for the runner. Gate 12 is automated when
 the target contains Agent Skills and belongs in the runner when the project has
-one. Manual gates are enforced by the done-done block referencing the checklist,
+one. Gate 3's complexity budget (strict max 10 per function/method, tests
+excluded, no grandfathering) is automated wherever Gate 3 applies and belongs
+in the runner alongside the linters — e.g. Python targets run
+`ruff check --select C901` plus strict `xenon --max-absolute B` scoped to
+source. Manual gates are enforced by the done-done block referencing the checklist,
 not by a command.
 
 - If the project already has one (`make check`, `./scripts/check.sh`, an

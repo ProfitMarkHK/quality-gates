@@ -1,0 +1,15 @@
+# Local developer tooling only (Gate 3b complexity budget).
+#
+# The skill scripts stay standard-library-only: this file adds no
+# dependencies and no build backend. It pins the cyclomatic-complexity
+# budget so `ruff check --select C901` enforces max 10 per function.
+# Test files are excluded from the budget by project policy.
+[tool.ruff.lint]
+select = ["C901"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["C901"]
+"examples/*" = ["C901"]

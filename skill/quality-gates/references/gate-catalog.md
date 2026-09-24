@@ -85,7 +85,35 @@ the project, prefer it over the alternatives (`clang-tidy`, `cppcheck`,
 one you used and why. This is a deliberate policy, not a default — do not
 silently substitute another linter when `Clean` could have been used.
 
-- No-op only if nothing applies (e.g. prose-only repo) — and say so.
+**Complexity budget — part of this gate (Gate 3b).** Every function/method must
+have a cyclomatic complexity of **10 or less — strict, no warnings tier, no
+grandfathering.** Existing violations are fixed, not baselined. Test files are
+**excluded** from the budget (tests legitimately branch more in setup); the
+enforcement command must scope to source or pass an explicit test exclusion.
+
+Per-language enforcement (confirm against what the repo actually configures —
+only wire what Phase 1 detected, never copy an example blindly):
+
+| Language        | Complexity enforcement (max 10, tests excluded) |
+|-----------------|--------------------------------------------------|
+| Python          | `ruff check --select C901` with `mccabe-complexity = 10` in `pyproject.toml`/`ruff.toml`, **plus** strict `xenon --max-absolute B --max-modules B --max-average A --exclude "tests/*,test_*.py,*_test.py" <src>` |
+| TypeScript / JS | `eslint` rule `"complexity": ["error", 10]` |
+| Go              | `gocyclo -over 10 .` or `golangci-lint` `cyclop` with `max-complexity: 10` |
+| Ruby            | `rubocop` `Metrics/CyclomaticComplexity: Max: 10` |
+| C / C++ / polyglot fallback | `lizard -C 10 <src>` |
+| Bash / PowerShell | no-op — no standard complexity metric; state it and rely on review for over-long functions |
+
+When the budget is violated: split the function — do not raise the threshold
+to force a pass. A threshold change is a gate weakening and needs a changelog
+entry and a checklist update with its reason. A per-function waiver
+(`# noqa: C901`, `// eslint-disable-next-line complexity`) is allowed only with
+a one-line reason recorded in the checklist; blanket file exclusions beyond
+tests are a gate failure, not a waiver.
+
+- No-op only if nothing applies (e.g. prose-only repo, or Bash/PowerShell-only
+  with no measurable complexity tool) — and say so.
+- Gap if the language supports a budget but none is wired (e.g. Python files
+  with no C901/xenon evidence) — schedule the wiring, do not drop the budget.
 
 ## 4. New code is covered by non-trivial tests
 
