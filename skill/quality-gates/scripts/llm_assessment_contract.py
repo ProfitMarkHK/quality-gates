@@ -492,6 +492,13 @@ def _validate_advisory_text(value, label, rule="", observation_id=""):
             rule=rule, observation_id=observation_id,
         )
     lowered = value.lower()
+    # AIDEV-545: a bare `;` is ordinary English clause punctuation
+    # ("unknown; they could be internal tools"), so only a semicolon that
+    # cannot be prose punctuation still fails: one not followed by
+    # whitespace, the compact shell-chaining shape (`cmd1;cmd2`). Spaced
+    # chains whose halves are bare words are lexically identical to
+    # English clauses; chains carrying real payloads still trip the
+    # verb, target, chaining, substitution, or quoting rules above.
     if (
         "```" in value
         or "`" in value
@@ -500,7 +507,7 @@ def _validate_advisory_text(value, label, rule="", observation_id=""):
         or "\\" in value
         or "&&" in value
         or "||" in value
-        or ";" in value
+        or re.search(r";(?!\s)", value)
         or re.search(r"(?<!\[)://", lowered)
         or re.search(r"\s\|\s", value)
         or re.search(

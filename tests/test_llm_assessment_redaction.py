@@ -70,9 +70,20 @@ class DenylistTests(unittest.TestCase):
     def test_shell_chaining_rejected(self):
         self.assert_rejected("Do this && then that.")
         self.assert_rejected("Do this || fall back.")
-        self.assert_rejected("First step; second step.")
+        self.assert_rejected("Chain a;b together.")
         self.assert_rejected("Uses ${HOME} for state.")
         self.assert_rejected("Pipe a | b for flow.")
+
+    def test_semicolon_clause_punctuation_passes(self):
+        # AIDEV-545: the 2026-09-24 live run failed twice on an ordinary
+        # semicolon in benign prose. Clause punctuation ("; " followed by
+        # prose) is not instruction-shaped and must pass.
+        self.assert_passes("First step; second step.")
+        self.assert_passes(
+            "The exact nature and purpose of 'frobnicate' and 'muddle' "
+            "are unknown; they could be internal tools, custom scripts, "
+            "or misconfigurations."
+        )
 
     def test_dangerous_verb_with_target_rejected(self):
         self.assert_rejected("Clean with rm -rf /tmp/cache daily.")

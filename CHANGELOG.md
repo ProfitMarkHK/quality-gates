@@ -6,6 +6,21 @@ tagged release (see `docs/deployment-readiness.md`).
 
 ## Unreleased
 
+### Narrow the advisory-text semicolon rule (AIDEV-545)
+
+`_validate_advisory_text` rejected any `;`, so the 2026-09-24 live run
+failed twice on benign clause punctuation and burned its single repair
+retry on unfixable wording. A semicolon now fails only when it cannot be
+prose punctuation (not followed by whitespace — the compact `cmd1;cmd2`
+shape); `&&`, `||`, pipes, substitutions, backticks, URLs, and the
+verb/target rules are unchanged, as is the preview neutralizer mapping.
+Spaced bare-word chains are treated as English clauses: they are lexically
+identical to ordinary punctuation and chains carrying real payloads still
+trip the other rules. Covered by new denylist tests, and the live smoke
+test now passes against the gateway.
+
+
+
 ### Quarantine output under a dedicated subdirectory (AIDEV-544)
 
 Failing assessments were quarantined into the operator working directory,
@@ -31,7 +46,7 @@ The machine path stays fail-closed (`failed`, empty observations,
 byte-identical deterministic review, one bounded repair retry unchanged);
 previews never enter gate mapping. The denylist is broader to close the
 underbroad hole the review found (`rm -rf`, `curl | sh` previously passed):
-raw URLs, shell chaining (`&&`, `||`, `;`, spaced pipes, `${`, backslashes),
+raw URLs, shell chaining (`&&`, `||`, compact `;`, spaced pipes, `${`, backslashes),
 and dangerous verbs with targets now fail validation, while bare tool
 mentions still pass. See `docs/adr/0004-redacted-preview-display-only.md`.
 Covered by `tests/test_llm_assessment_redaction.py` (13 tests: denylist,
