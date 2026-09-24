@@ -6,6 +6,19 @@ tagged release (see `docs/deployment-readiness.md`).
 
 ## Unreleased
 
+### Collapse fully-excluded subtrees in the LLM assessment input (AIDEV-543)
+
+First live run against classification-agent fail-closed at 7MB vs a 200KB
+input cap: 5.98MB was 18,565 per-file `excluded` placeholders under
+`my_ai_brain/.venv`, while real content was 52 files / 934K chars (248K
+tokens, inside budget). `build_input_package` now prunes a directory without
+descent — emitting one `collapsed: true` placeholder — only when a
+trailing-slash pattern covers it or a `**/NAME/**` pattern names its basename
+literally; file globs, bare names, and anchored patterns still descend.
+`references/llm-assessment.md` documents the collapse. Four new hermetic
+tests cover prefix pruning, basename pruning, no-prune cases, and
+real-material-set equality on a fake venv fixture.
+
 ### Harden `.env.example` exclusion patterns
 
 Field experience on a large target (18,619 materials, ~900MB venv): the old
