@@ -510,6 +510,148 @@ class LlmAssessmentContractTests(unittest.TestCase):
             {item["material_id"] for item in package["materials"]},
         )
 
+    def test_collapsed_trailing_slash_prefix_pruning(self):
+        from llm_assessment_contract import _collapse_pattern_for_dir
+
+        self.assertEqual(
+            _collapse_pattern_for_dir("my_ai_brain/.venv", ["my_ai_brain/.venv/"]),
+            "my_ai_brain/.venv/",
+        )
+        # ancestor prefix also proves the subtree fully excluded
+        self.assertEqual(
+            _collapse_pattern_for_dir("my_ai_brain/.venv/lib", ["my_ai_brain/.venv/"]),
+            "my_ai_brain/.venv/",
+        )
+        self.assertIsNone(_collapse_pattern_for_dir("other/tree", ["my_ai_brain/.venv/"]))
+        self.assertIsNone(_collapse_pattern_for_dir("my_ai_brain/.venv2", ["my_ai_brain/.venv/"]))
+
+        deterministic = {"languages": ["Python"]}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "keep.py").write_text("print('ok')\n", encoding="utf-8")
+            venv = root / "my_ai_brain" / ".venv" / "lib"
+            venv.mkdir(parents=True)
+            for name in ("a.py", "b.py", "c.so"):
+                (venv / name).write_text("x", encoding="utf-8")
+            package = build_input_package(root, deterministic, ["my_ai_brain/.venv/"])
+        materials = {item["material_id"]: item for item in package["materials"]}
+        self.assertEqual(set(materials), {"keep.py", "my_ai_brain/.venv"})
+        collapsed = materials["my_ai_brain/.venv"]
+        self.assertEqual(collapsed["kind"], "excluded")
+        self.assertFalse(collapsed["readable"])
+        self.assertIn("operator config", collapsed["reason"])
+        self.assertTrue(collapsed.get("collapsed"))
+        # collapsed id stays referenceable
+        validate_result(
+            {
+                "status": "completed",
+                "observations": [{
+                    "id": "obs-1",
+                    "statement": "The project vendors its runtime.",
+                    "source_references": [{
+                        "material_id": "my_ai_brain/.venv",
+                        "path": "my_ai_brain/.venv",
+                    }],
+                }],
+                "uncertainties": [],
+                "recommendations": [{
+                    "id": "rec-1",
+                    "text": "Can the project owner validate observation obs-1?",
+                    "related_observation_ids": ["obs-1"],
+                }],
+                "deterministic_review": deterministic,
+            },
+            deterministic,
+            set(materials),
+        )
+
+    def test_collapsed_basename_pattern_pruning(self):
+        from llm_assessment_contract import _collapse_pattern_for_dir
+
+        self.assertEqual(
+            _collapse_pattern_for_dir("my_ai_brain/.venv", ["**/.venv/**"]),
+            "**/.venv/**",
+        )
+        self.assertEqual(
+            _collapse_pattern_for_dir("a/b/__pycache__", ["**/__pycache__/**"]),
+            "**/__pycache__/**",
+        )
+        self.assertIsNone(_collapse_pattern_for_dir("my_ai_brain/.venv2", ["**/.venv/**"]))
+        self.assertIsNone(_collapse_pattern_for_dir("src/other", ["**/.venv/**"]))
+
+        deterministic = {"languages": ["Python"]}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "keep.py").write_text("print('ok')\n", encoding="utf-8")
+            venv = root / "my_ai_brain" / ".venv"
+            (venv / "lib").mkdir(parents=True)
+            (venv / "lib" / "a.py").write_text("x", encoding="utf-8")
+            (venv / "pyvenv.cfg").write_text("x", encoding="utf-8")
+            package = build_input_package(root, deterministic, ["**/.venv/**"])
+        materials = {item["material_id"]: item for item in package["materials"]}
+        self.assertEqual(set(materials), {"keep.py", "my_ai_brain/.venv"})
+        self.assertTrue(materials["my_ai_brain/.venv"].get("collapsed"))
+
+    def test_collapse_never_prunes_file_globs_or_multisegment(self):
+        from llm_assessment_contract import _collapse_pattern_for_dir
+
+        # file globs must descend as usual
+        self.assertIsNone(_collapse_pattern_for_dir("a/b", ["**/*.pyc"]))
+        self.assertIsNone(_collapse_pattern_for_dir("sub", ["uv.lock"]))
+        self.assertIsNone(_collapse_pattern_for_dir("sub", ["*.lock"]))
+        # anchored / multi-segment non-trailing patterns never prune
+        self.assertIsNone(_collapse_pattern_for_dir("src", ["src/*"]))
+        self.assertIsNone(_collapse_pattern_for_dir("a/b", ["a/b/c"]))
+        self.assertIsNone(_collapse_pattern_for_dir("cache", ["**/cache"]))
+        # glob metachars in the NAME slot never prune
+        self.assertIsNone(_collapse_pattern_for_dir("ab", ["**/a*/**"]))
+        self.assertIsNone(_collapse_pattern_for_dir("a", ["**/?/**"]))
+
+        deterministic = {"languages": ["Python"]}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "keep.py").write_text("print('ok')\n", encoding="utf-8")
+            sub = root / "sub"
+            sub.mkdir()
+            (sub / "uv.lock").write_text("x", encoding="utf-8")
+            (sub / "other.txt").write_text("y", encoding="utf-8")
+            package = build_input_package(root, deterministic, ["uv.lock"])
+        materials = {item["material_id"]: item for item in package["materials"]}
+        self.assertEqual(set(materials), {"keep.py", "sub/other.txt", "sub/uv.lock"})
+        self.assertFalse(any(item.get("collapsed") for item in package["materials"]))
+
+    def test_collapse_preserves_real_material_set(self):
+        deterministic = {"languages": ["Python"]}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "keep.py").write_text("print('ok')\n", encoding="utf-8")
+            (root / "data" / "raw").mkdir(parents=True)
+            (root / "data" / "raw" / "input.csv").write_text("a,b\n", encoding="utf-8")
+            venv = root / "my_ai_brain" / ".venv" / "lib"
+            venv.mkdir(parents=True)
+            (venv / "a.py").write_text("x", encoding="utf-8")
+            (venv / "b.pyc").write_bytes(b"\x00\x01")
+            patterns = ["my_ai_brain/.venv/", "data/"]
+            collapsed = build_input_package(root, deterministic, patterns)
+            expanded = build_input_package(root, deterministic, [])
+        collapsed_ids = {item["material_id"] for item in collapsed["materials"]}
+        self.assertEqual(collapsed_ids, {"keep.py", "data", "my_ai_brain/.venv"})
+        real_collapsed = {
+            item["material_id"] for item in collapsed["materials"]
+            if item.get("kind") != "excluded"
+        }
+        real_expanded_minus_pruned = {
+            item["material_id"] for item in expanded["materials"]
+            if not (
+                item["material_id"] == "data"
+                or item["material_id"].startswith("data/")
+                or item["material_id"] == "my_ai_brain/.venv"
+                or item["material_id"].startswith("my_ai_brain/.venv/")
+            )
+        }
+        self.assertEqual(real_collapsed, real_expanded_minus_pruned)
+        self.assertEqual(real_collapsed, {"keep.py"})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -251,6 +251,59 @@ def _excluded_record(path: Path, root: Path) -> dict:
     }
 
 
+def _collapsed_excluded_record(path: Path, root: Path, pattern: str) -> dict:
+    """Single placeholder for a pruned directory subtree (AIDEV-543).
+
+    The subtree is provably fully excluded by one conservative operator
+    pattern (see `_collapse_pattern_for_dir`); emitting one record keeps
+    large vendored trees (e.g. `.venv`) from exploding the input package
+    while keeping the exclusion visible and referenceable.
+    """
+    relative = path.relative_to(root).as_posix()
+    return {
+        "material_id": relative,
+        "path": relative,
+        "kind": "excluded",
+        "readable": False,
+        "reason": f"{EXCLUDED_REASON} (collapsed directory subtree via pattern '{pattern}')",
+        "collapsed": True,
+        "pattern": pattern,
+    }
+
+
+def _collapse_pattern_for_dir(dir_rel: str, patterns: list[str]) -> str | None:
+    """Return the operator pattern proving a directory subtree fully excluded.
+
+    Conservative rules only (AIDEV-543):
+    1. a trailing-slash pattern whose prefix equals the dir or an ancestor;
+    2. a `**/NAME/**` pattern with literal single-segment NAME equal to the
+       dir basename. File globs, bare names, and anchored or multi-segment
+       patterns never prune; the walk descends as usual for those.
+    """
+    basename = dir_rel.rsplit("/", 1)[-1]
+    for pattern in patterns:
+        normalized = pattern.removeprefix("./")
+        if normalized.endswith("/") and len(normalized) > 1:
+            prefix = normalized.rstrip("/")
+            if dir_rel == prefix or dir_rel.startswith(prefix + "/"):
+                return pattern
+            continue
+        if normalized.startswith("**/") and normalized.endswith("/**"):
+            middle = normalized[3:-3]
+            if (
+                middle
+                and "/" not in middle
+                and "*" not in middle
+                and "?" not in middle
+                and "[" not in middle
+                and "]" not in middle
+                and basename == middle
+            ):
+                return pattern
+            continue
+    return None
+
+
 def _material_record(path: Path, root: Path) -> dict:
     relative = path.relative_to(root).as_posix()
     record = {"material_id": relative, "path": relative}
@@ -329,6 +382,11 @@ def build_input_package(
     Placeholders keep `material_id` stable so result references still validate;
     nothing is silently dropped. Patterns never come from target content, and
     `.gitignore` / `.git/info/exclude` are never consulted.
+
+    Fully-excluded directory subtrees collapse to one placeholder (AIDEV-543):
+    a directory is pruned without descent only when a trailing-slash pattern
+    covers it (prefix equals the dir or an ancestor) or a `**/NAME/**`
+    pattern names its basename literally. All other patterns descend as usual.
     """
     root = root.resolve()
     patterns = list(exclude_patterns) if exclude_patterns else []
@@ -347,6 +405,16 @@ def build_input_package(
                     materials.append(_excluded_record(path, root))
                 else:
                     materials.append(_material_record(path, root))
+                dirnames.remove(dirname)
+                continue
+            try:
+                relative = path.relative_to(root).as_posix()
+            except ValueError:
+                dirnames.remove(dirname)
+                continue
+            collapsed = _collapse_pattern_for_dir(relative, patterns)
+            if collapsed is not None:
+                materials.append(_collapsed_excluded_record(path, root, collapsed))
                 dirnames.remove(dirname)
         for filename in sorted(filenames):
             if filename == ".git":
