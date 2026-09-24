@@ -6,6 +6,25 @@ tagged release (see `docs/deployment-readiness.md`).
 
 ## Unreleased
 
+### Display-only redacted previews for rejected LLM observations
+
+Advisory-text rejections discarded the whole assessment while the raw text
+sat in a human-only quarantine file, so benign flags (`install
+instructions`, `command-line`) were indistinguishable from real ones inside
+a live session. Contract violations with a parsed candidate now also attach
+`metadata.redacted_preview`: up to 5 neutralized observation/uncertainty
+hints (ASCII-only, NFKC-stable category tags, capped at 500 chars per span).
+The machine path stays fail-closed (`failed`, empty observations,
+byte-identical deterministic review, one bounded repair retry unchanged);
+previews never enter gate mapping. The denylist is broader to close the
+underbroad hole the review found (`rm -rf`, `curl | sh` previously passed):
+raw URLs, shell chaining (`&&`, `||`, `;`, spaced pipes, `${`, backslashes),
+and dangerous verbs with targets now fail validation, while bare tool
+mentions still pass. See `docs/adr/0004-redacted-preview-display-only.md`.
+Covered by `tests/test_llm_assessment_redaction.py` (13 tests: denylist,
+neutralizer table, ASCII/NFKC/idempotency/re-validation properties,
+envelope caps, seam preview + quarantine + no-raw-leak).
+
 ### Collapse fully-excluded subtrees in the LLM assessment input (AIDEV-543)
 
 First live run against classification-agent fail-closed at 7MB vs a 200KB

@@ -172,6 +172,20 @@ Result metadata carries `quarantine_path`, `violation_observation_id`,
 deadline returns `timed_out` without quarantining. Always run from a working
 directory outside the target; a directory inside the target is refused.
 
+## Redacted preview (display only)
+
+Because the advisory-text filter rejects benign prose alongside real
+instruction-shaped content (any `run`/`install`/`command` verb, any raw URL,
+any shell chaining), every contract violation that yields a parsed candidate
+also attaches `metadata.redacted_preview`: up to 5 observation statements and
+5 uncertainties passed through `redact_preview_text` (ASCII-only,
+NFKC-stable, idempotent category tags such as `[setup-action]`,
+`candidate-tool [check]`, `[instruction withheld: rm]`, `https[://]host`).
+The machine result stays fail-closed (`failed`, empty observations); the
+preview is a human-readable hint, never an advisory observation and never an
+input to gate mapping. Verify any hint against the source file and the
+quarantined raw output before acting on it.
+
 ## Configuration
 
 Operator configuration only — never from target-project content. Process

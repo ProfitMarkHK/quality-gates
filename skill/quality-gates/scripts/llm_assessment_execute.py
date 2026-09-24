@@ -34,6 +34,7 @@ try:
     from llm_assessment_contract import (
         AssessmentContractError,
         EXCLUDE_ENV_VAR,
+        build_redacted_preview,
         parse_exclude_patterns,
         serialize_input_package,
         validate_result,
@@ -43,6 +44,7 @@ except ImportError:  # allow `python scripts/llm_assessment_execute.py` direct u
     from llm_assessment_contract import (
         AssessmentContractError,
         EXCLUDE_ENV_VAR,
+        build_redacted_preview,
         parse_exclude_patterns,
         serialize_input_package,
         validate_result,
@@ -545,6 +547,7 @@ def execute_assessment(
         "violation_observation_id": None,
         "violation_rule": None,
         "quarantine_path": None,
+        "redacted_preview": None,
         "repair_attempts": 0,
     }
     headers = dict(auth_headers) if auth_headers is not None else _auth_headers()
@@ -660,6 +663,10 @@ def execute_assessment(
             latest_id = _sanitize_echo(getattr(exc, "observation_id", ""))
             metadata["violation_rule"] = latest_rule
             metadata["violation_observation_id"] = latest_id
+            if metadata.get("redacted_preview") is None:
+                repair_preview = build_redacted_preview(repair_candidate, latest_rule)
+                if repair_preview is not None:
+                    metadata["redacted_preview"] = repair_preview
             _retain(repair_text_out, latest_rule, latest_id)
             return finish(_nonblocking_result(
                 "failed", deterministic_review,
@@ -805,6 +812,9 @@ def execute_assessment(
             observation_id = _sanitize_echo(getattr(exc, "observation_id", ""))
             metadata["violation_rule"] = rule
             metadata["violation_observation_id"] = observation_id
+            preview = build_redacted_preview(candidate, rule)
+            if preview is not None:
+                metadata["redacted_preview"] = preview
             if int(deadline - time.monotonic()) <= 0:
                 return finish(_nonblocking_result(
                     "timed_out", deterministic_review, "assessment deadline expired",
@@ -862,7 +872,7 @@ def main() -> int:
         print(json.dumps({"result": result, "metadata": {
             "api_style": DEFAULT_API_STYLE, "model": DEFAULT_MODEL,
             "attempt_count": 0, "elapsed_seconds": 0.0, "status": "failed",
-            "gateway_request_id": None,
+            "gateway_request_id": None, "redacted_preview": None,
         }}, indent=2))
         return 0
 

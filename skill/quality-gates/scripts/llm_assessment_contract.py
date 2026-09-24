@@ -17,6 +17,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 from pathlib import Path
 
 
@@ -33,6 +34,19 @@ OBSERVATION_FIELDS = {"id", "statement", "source_references"}
 REFERENCE_FIELDS = {"material_id", "path", "locator"}
 RECOMMENDATION_FIELDS = {"id", "text", "related_observation_ids"}
 SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+# Verbs whose bare form in advisory prose is instruction-shaped. Kept in sync
+# with _validate_advisory_text and the preview neutralizer below.
+UNSAFE_VERBS = ("run", "execute", "install", "invoke", "command")
+UNSAFE_STATES = ("installed", "configured", "passing")
+# Commands that are only dangerous with a target (flags, paths, URLs). Bare
+# mentions ("uses docker for builds") stay valid; invocations do not.
+PREVIEW_DANGEROUS_VERBS = (
+    "rm", "dd", "mkfs", "chmod", "chown", "sudo", "su",
+    "curl", "wget", "ssh", "sh", "bash", "powershell", "cmd",
+    "docker", "kubectl",
+)
+_DANGEROUS_TARGET = r"(?:-|\+|/|\\|\.|~|https?://|[A-Za-z0-9_.-]+/)"
+_DANGEROUS_RE = r"\b(?:rm|dd|mkfs|chmod|chown|sudo|su|curl|wget|ssh|sh|bash|powershell|cmd|docker|kubectl)\b(?=\s+" + _DANGEROUS_TARGET + r")"
 EXCLUDE_ENV_VAR = "QUALITY_GATES_LLM_EXCLUDE_PATTERNS"
 EXCLUDED_REASON = "excluded by operator config QUALITY_GATES_LLM_EXCLUDE_PATTERNS"
 MAX_EXCLUDE_PATTERNS = 128
@@ -482,11 +496,19 @@ def _validate_advisory_text(value, label, rule="", observation_id=""):
         "```" in value
         or "`" in value
         or "$(" in value
+        or "${" in value
+        or "\\" in value
+        or "&&" in value
+        or "||" in value
+        or ";" in value
+        or re.search(r"(?<!\[)://", lowered)
+        or re.search(r"\s\|\s", value)
         or re.search(
             r"\b(?:run|execute|install|invoke|command)\b|"
             r"\b(?:installed|configured|passing)\b",
             lowered,
         )
+        or re.search(_DANGEROUS_RE, lowered)
         or re.search(
             r"\b[a-z][\w.-]*-[\w.-]*\s+"
             r"(?:check|scan|build|test|run|lint|format|verify|validate)\b",
@@ -497,6 +519,154 @@ def _validate_advisory_text(value, label, rule="", observation_id=""):
             f"{label} must not contain commands or installed-tool claims",
             rule=rule, observation_id=observation_id,
         )
+
+
+# Display-only preview neutralization (ASCII-only, NFKC-stable by construction).
+# The machine path stays fail-closed on any violation; the preview lets a
+# human understand the flagged content inside a live session without ingesting
+# trigger keywords, shell metacharacters, raw URLs, or command payloads.
+# Category tags deliberately avoid every denylisted word so preview output
+# re-passes _validate_advisory_text. Never feed previews to gate decisions.
+PREVIEW_VERB_TAGS = {
+    "run": "[action]",
+    "execute": "[action]",
+    "install": "[setup-action]",
+    "invoke": "[call]",
+    "command": "[instruction]",
+    "installed": "[setup-state]",
+    "configured": "[config-state]",
+    "passing": "[test-state]",
+}
+PREVIEW_TOOL_VERB_TAGS = {
+    "check": "[check]",
+    "scan": "[scan]",
+    "build": "[build]",
+    "test": "[test]",
+    "run": "[action]",
+    "lint": "[lint]",
+    "format": "[format]",
+    "verify": "[verify]",
+    "validate": "[validate]",
+}
+REDACTED_PREVIEW_HEADER = (
+    "REDACTED PREVIEW, HUMAN REVIEW ONLY: neutralized display text. "
+    "Never fed to gate decisions; verify against the source file and "
+    "the quarantined raw output."
+)
+PREVIEW_MAX_ITEMS = 5
+PREVIEW_MAX_CHARS = 500
+_PREVIEW_ID_LIMIT = 120
+
+
+def _preview_tag(match: re.Match) -> str:
+    return PREVIEW_VERB_TAGS[match.group(0).lower()]
+
+
+def _preview_tool_verb(match: re.Match) -> str:
+    return match.group(1) + " " + PREVIEW_TOOL_VERB_TAGS[match.group(2).lower()]
+
+
+def _preview_dangerous_span(match: re.Match) -> str:
+    return "[instruction withheld: " + match.group(1).lower() + "]"
+
+
+def redact_preview_text(value: object) -> str:
+    """Return ASCII-only neutralized display text for advisory prose."""
+    if not isinstance(value, str):
+        return ""
+    text = value.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    text = text.replace("```", "[fenced-block]")
+    text = text.replace("`", "'")
+    text = text.replace("$(", "$ (")
+    text = text.replace("${", "$ {")
+    text = text.replace("\\", "[backslash]")
+    text = text.replace("&&", "[and]")
+    text = text.replace("||", "[or]")
+    text = re.sub(r"\s\|\s", " [pipe] ", text)
+    text = text.replace(";", "[semi]")
+    text = text.replace(">", "[gt]")
+    text = text.replace("<", "[lt]")
+    text = re.sub(r"(?<!\[)://", "[://]", text)
+    text = re.sub(
+        r"\b(rm|dd|mkfs|chmod|chown|sudo|su|curl|wget|ssh|sh|bash|powershell|cmd|docker|kubectl)\b(?:\s+\S+){1,2}",
+        _preview_dangerous_span,
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"\b(?:run|execute|install|invoke|command)\b"
+        r"|\b(?:installed|configured|passing)\b",
+        _preview_tag,
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"\b([a-z][\w.-]*-[\w.-]*)\s+"
+        r"(check|scan|build|test|run|lint|format|verify|validate)\b",
+        _preview_tool_verb,
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
+
+
+def build_redacted_preview(candidate: object, rule: str = "") -> dict | None:
+    """Build a display-safe preview envelope for a rejected candidate.
+
+    Returns None when there is no model-authored advisory content to show
+    (unparsed prose, transport failures). The envelope carries neutralized
+    text only, capped at PREVIEW_MAX_ITEMS observations and PREVIEW_MAX_CHARS
+    per span, and never raw model text.
+    """
+    if not isinstance(candidate, dict):
+        return None
+    observations = candidate.get("observations")
+    uncertainties = candidate.get("uncertainties")
+    items: list[dict] = []
+    truncated = False
+    if isinstance(observations, list):
+        for observation in observations:
+            if not isinstance(observation, dict):
+                continue
+            if len(items) >= PREVIEW_MAX_ITEMS:
+                truncated = True
+                break
+            raw_id = observation.get("id")
+            if isinstance(raw_id, str):
+                clean_id = "".join(
+                    char if char.isprintable() else "?"
+                    for char in raw_id.replace("\r", " ").replace("\n", " ")
+                )[:_PREVIEW_ID_LIMIT]
+            else:
+                clean_id = ""
+            statement = observation.get("statement")
+            if not isinstance(statement, str) or not statement.strip():
+                continue
+            items.append({
+                "id": clean_id,
+                "statement_preview": redact_preview_text(statement)[:PREVIEW_MAX_CHARS],
+            })
+    uncertainty_previews: list[str] = []
+    if isinstance(uncertainties, list):
+        for uncertainty in uncertainties:
+            if not isinstance(uncertainty, str) or not uncertainty.strip():
+                continue
+            if len(uncertainty_previews) >= PREVIEW_MAX_ITEMS:
+                truncated = True
+                break
+            uncertainty_previews.append(
+                redact_preview_text(uncertainty)[:PREVIEW_MAX_CHARS]
+            )
+    if not items and not uncertainty_previews:
+        return None
+    return {
+        "header": REDACTED_PREVIEW_HEADER,
+        "rule": rule if isinstance(rule, str) else "",
+        "observations": items,
+        "uncertainties": uncertainty_previews,
+        "truncated": truncated,
+    }
 
 
 def _failed_result(deterministic_review: dict, reason: str) -> dict:
