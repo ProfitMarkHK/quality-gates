@@ -6,6 +6,19 @@ tagged release (see `docs/deployment-readiness.md`).
 
 ## Unreleased
 
+### Self-describing quarantine envelopes plus a display-only reader (AIDEV-547)
+
+Quarantine files held the full model output as one escaped `raw_text`
+string with the violating rule but no locator — the deterministic-review
+echo bulk buried the one failing sentence. New envelopes carry summary
+keys before `raw_text`: `echo` (byte size plus identical/not-identical
+verdict against the sent review), `offending` (the failing observation or
+uncertainties, redacted), and the persisted `redacted_preview`; `raw_text`
+stays byte-identical, and unparsable output nulls the summary keys. The new
+display-only `scripts/quarantine_read.py` renders old and new envelopes as
+a triage summary without dumping the echo. Fail-closed behaviour, file
+permissions, and atomic writes unchanged.
+
 ### Narrow the advisory-text semicolon rule (AIDEV-545)
 
 `_validate_advisory_text` rejected any `;`, so the 2026-09-24 live run

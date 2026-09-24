@@ -37,6 +37,7 @@ try:
     from llm_assessment_contract import (
         AssessmentContractError,
         EXCLUDE_ENV_VAR,
+        build_offending_items,
         build_redacted_preview,
         parse_exclude_patterns,
         serialize_input_package,
@@ -47,6 +48,7 @@ except ImportError:  # allow `python scripts/llm_assessment_execute.py` direct u
     from llm_assessment_contract import (
         AssessmentContractError,
         EXCLUDE_ENV_VAR,
+        build_offending_items,
         build_redacted_preview,
         parse_exclude_patterns,
         serialize_input_package,
@@ -500,6 +502,8 @@ def _quarantine_write(
     rule: str | None,
     observation_id: str | None,
     working_dir: Path,
+    candidate: dict | None = None,
+    deterministic_review: dict | None = None,
 ) -> Path | None:
     """Retain failing model output for human review; never raises.
 
@@ -511,15 +515,48 @@ def _quarantine_write(
     text. The file is operator-owned: there is no auto-cleanup or
     rotation in v1. On any write failure it returns None so the caller
     can degrade to metadata-only without failing the assessment.
+
+    The envelope stays self-describing: summary keys (`echo`,
+    `offending`, `redacted_preview`) precede `raw_text` so a human
+    reaches the failing content within one screen. `raw_text` is always
+    byte-identical to the model output. When no parsed candidate is
+    available (unparsable output), the summary keys are null.
     """
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S-%fZ")
     digest = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()[:10]
+    echo: dict | None = None
+    offending: list[dict] | None = None
+    preview: dict | None = None
+    if isinstance(candidate, dict):
+        sent_echo = candidate.get("deterministic_review")
+        if isinstance(sent_echo, dict):
+            echo = {
+                "bytes": len(json.dumps(sent_echo, sort_keys=True).encode("utf-8")),
+                "identical": (
+                    sent_echo == deterministic_review
+                    if isinstance(deterministic_review, dict)
+                    else None
+                ),
+            }
+        else:
+            echo = {"bytes": 0, "identical": False}
+        try:
+            offending = build_offending_items(candidate, rule or "", observation_id or "")
+        except Exception:
+            offending = []
+        try:
+            preview = build_redacted_preview(candidate, rule or "")
+        except Exception:
+            preview = None
     envelope = {
         "header": QUARANTINE_HEADER,
         "violation": {
             "observation_id": observation_id or "",
             "rule": rule or "",
         },
+        "echo": echo,
+        "offending": offending,
+        "redacted_preview": preview,
         "raw_text": raw_text,
     }
     data = json.dumps(envelope, indent=2, ensure_ascii=False).encode("utf-8")
@@ -589,13 +626,21 @@ def execute_assessment(
         metadata["elapsed_seconds"] = round(time.monotonic() - started, 3)
         return result, metadata
 
-    def _retain(raw_text: str, rule: str | None, observation_id: str | None) -> None:
+    def _retain(
+        raw_text: str,
+        rule: str | None,
+        observation_id: str | None,
+        candidate: dict | None = None,
+    ) -> None:
         """Write one quarantine file; keep the first good path, never raises.
 
         A later write failure degrades to metadata-only without clobbering
         an earlier successful path (double violation keeps the first file).
         """
-        path = _quarantine_write(raw_text, rule, observation_id, quarantine_dir)
+        path = _quarantine_write(
+            raw_text, rule, observation_id, quarantine_dir,
+            candidate=candidate, deterministic_review=deterministic_review,
+        )
         if path is None:
             print(
                 "quality-gates: quarantine write failed; proceeded with metadata only",
@@ -697,7 +742,7 @@ def execute_assessment(
                 repair_preview = build_redacted_preview(repair_candidate, latest_rule)
                 if repair_preview is not None:
                     metadata["redacted_preview"] = repair_preview
-            _retain(repair_text_out, latest_rule, latest_id)
+            _retain(repair_text_out, latest_rule, latest_id, repair_candidate)
             return finish(_nonblocking_result(
                 "failed", deterministic_review,
                 f"model result violated contract: {_single_line(exc)}",
@@ -853,6 +898,7 @@ def execute_assessment(
                 text,
                 rule,
                 observation_id,
+                candidate,
             )
             return attempt_repair(rule, observation_id)
         return finish(result)

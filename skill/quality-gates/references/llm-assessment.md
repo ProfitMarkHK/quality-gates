@@ -161,9 +161,15 @@ retained in a timestamped quarantine file under a `quarantine/`
 subdirectory of the operator working directory
 (never inside the target, never at the config directory top level),
 with an untrusted-data header; the path is printed
-on stderr and recorded in result metadata. Quarantine files are human-only:
+on stderr and recorded in result metadata. The envelope is self-describing:
+summary keys (`echo` with byte size and identical/not-identical verdict,
+`offending` naming the failing observation or uncertainties, and the
+`redacted_preview`) precede `raw_text`, which stays byte-identical to the
+model output; with unparsable output the summary keys are null. Quarantine
+files are human-only:
 nothing auto-loads them and nothing feeds them back into agent context or
-gate decisions.
+gate decisions. The display-only `scripts/quarantine_read.py` renders any
+envelope — old or new — as a triage summary without dumping the echo bulk.
 
 One bounded repair retry follows a validation failure: the identical package
 plus one appended fixed operator message quoting the violating rule and

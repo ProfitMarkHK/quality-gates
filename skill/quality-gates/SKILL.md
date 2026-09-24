@@ -263,6 +263,8 @@ configured is not).
   bounded timeout, output, payload, and retry policies. See `.env.example`
   for operator configuration.
 - `scripts/detect_project.py` — read-only project scanner used in Phase 1.
+- `scripts/quarantine_read.py` — display-only quarantine triage reader for
+  human review; never feeds gate decisions.
 - `assets/checklist-template.md` — template for the project checklist doc.
 - `assets/done-done-block.md` — template for the instruction-file block.
 - `.env.example` — placeholder operator configuration for the optional LLM

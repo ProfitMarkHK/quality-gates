@@ -676,6 +676,55 @@ def build_redacted_preview(candidate: object, rule: str = "") -> dict | None:
     }
 
 
+def build_offending_items(
+    candidate: object, rule: str = "", observation_id: str = ""
+) -> list[dict]:
+    """Extract the specific failing advisory strings for quarantine display.
+
+    Returns display-only items (neutralized via redact_preview_text, capped
+    at PREVIEW_MAX_ITEMS / PREVIEW_MAX_CHARS) naming only the content the
+    violation points at: the observation whose id matches observation_id,
+    or — for uncertainty-level rules and empty observation ids — the
+    candidate's uncertainties. Returns [] when the candidate is not a
+    parsed object or names nothing matching. Never raises.
+    """
+    try:
+        if not isinstance(candidate, dict):
+            return []
+        if isinstance(observation_id, str) and observation_id:
+            observations = candidate.get("observations")
+            if isinstance(observations, list):
+                for observation in observations:
+                    if (
+                        isinstance(observation, dict)
+                        and observation.get("id") == observation_id
+                    ):
+                        statement = observation.get("statement")
+                        if isinstance(statement, str) and statement.strip():
+                            return [{
+                                "kind": "observation",
+                                "id": observation_id,
+                                "text_preview": redact_preview_text(statement)[:PREVIEW_MAX_CHARS],
+                            }]
+            return []
+        uncertainties = candidate.get("uncertainties")
+        if not isinstance(uncertainties, list):
+            return []
+        items = []
+        for uncertainty in uncertainties:
+            if not isinstance(uncertainty, str) or not uncertainty.strip():
+                continue
+            if len(items) >= PREVIEW_MAX_ITEMS:
+                break
+            items.append({
+                "kind": "uncertainty",
+                "text_preview": redact_preview_text(uncertainty)[:PREVIEW_MAX_CHARS],
+            })
+        return items
+    except Exception:
+        return []
+
+
 def _failed_result(deterministic_review: dict, reason: str) -> dict:
     return {
         "status": "failed",
