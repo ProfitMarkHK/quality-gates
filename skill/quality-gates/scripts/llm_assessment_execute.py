@@ -96,6 +96,20 @@ def _single_line(value: object, limit: int = 500) -> str:
     return text[:limit] if len(text) > limit else text
 
 
+def _is_timeout_error(exc: BaseException) -> bool:
+    name = type(exc).__name__.lower()
+    message = str(exc).lower()
+    return ("timed out" in name or "timeout" in name
+            or "timed out" in message or "timeout" in message)
+
+
+def _is_unreachable_message(message: str) -> bool:
+    return any(token in message for token in (
+        "connection refused", "no route to host", "name or service not known",
+        "nodename nor servname", "network is unreachable", "failed to connect",
+    ))
+
+
 def _strip_code_fences(text: str) -> str:
     """Remove one wrapping markdown code fence so fenced JSON still parses.
 
@@ -497,6 +511,36 @@ def _ensure_quarantine_dir(working_dir: Path) -> Path | None:
     return qdir
 
 
+def _quarantine_summaries(candidate: dict | None, deterministic_review: dict | None,
+                            rule: str | None, observation_id: str | None) -> tuple:
+    echo: dict | None = None
+    offending: list[dict] | None = None
+    preview: dict | None = None
+    if not isinstance(candidate, dict):
+        return echo, offending, preview
+    sent_echo = candidate.get("deterministic_review")
+    if isinstance(sent_echo, dict):
+        echo = {
+            "bytes": len(json.dumps(sent_echo, sort_keys=True).encode("utf-8")),
+            "identical": (
+                sent_echo == deterministic_review
+                if isinstance(deterministic_review, dict)
+                else None
+            ),
+        }
+    else:
+        echo = {"bytes": 0, "identical": False}
+    try:
+        offending = build_offending_items(candidate, rule or "", observation_id or "")
+    except Exception:
+        offending = []
+    try:
+        preview = build_redacted_preview(candidate, rule or "")
+    except Exception:
+        preview = None
+    return echo, offending, preview
+
+
 def _quarantine_write(
     raw_text: str,
     rule: str | None,
@@ -524,30 +568,9 @@ def _quarantine_write(
     """
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S-%fZ")
     digest = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()[:10]
-    echo: dict | None = None
-    offending: list[dict] | None = None
-    preview: dict | None = None
-    if isinstance(candidate, dict):
-        sent_echo = candidate.get("deterministic_review")
-        if isinstance(sent_echo, dict):
-            echo = {
-                "bytes": len(json.dumps(sent_echo, sort_keys=True).encode("utf-8")),
-                "identical": (
-                    sent_echo == deterministic_review
-                    if isinstance(deterministic_review, dict)
-                    else None
-                ),
-            }
-        else:
-            echo = {"bytes": 0, "identical": False}
-        try:
-            offending = build_offending_items(candidate, rule or "", observation_id or "")
-        except Exception:
-            offending = []
-        try:
-            preview = build_redacted_preview(candidate, rule or "")
-        except Exception:
-            preview = None
+    echo, offending, preview = _quarantine_summaries(
+        candidate, deterministic_review, rule, observation_id
+    )
     envelope = {
         "header": QUARANTINE_HEADER,
         "violation": {
@@ -591,42 +614,66 @@ def _quarantine_write(
     return None
 
 
-def execute_assessment(
-    package: dict,
-    deterministic_review: dict,
-    material_ids: set[str],
-    config: dict,
-    auth_headers: dict[str, str] | None = None,
-    _urlopen=None,
-    _counter=None,
-    _working_dir: Path | None = None,
-) -> tuple[dict, dict]:
-    """Run one bounded gateway interaction; never raises on transport failure."""
-    started = time.monotonic()
-    metadata = {
-        "api_style": config.get("api_style", DEFAULT_API_STYLE),
-        "model": config.get("model", DEFAULT_MODEL),
-        "attempt_count": 0,
-        "elapsed_seconds": 0.0,
-        "status": "failed",
-        "gateway_request_id": None,
-        "sizing_method": None,
-        "violation_observation_id": None,
-        "violation_rule": None,
-        "quarantine_path": None,
-        "redacted_preview": None,
-        "repair_attempts": 0,
-    }
-    headers = dict(auth_headers) if auth_headers is not None else _auth_headers()
-    deadline = started + max(1, int(config.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS)))
-    quarantine_dir = Path(_working_dir) if _working_dir is not None else Path.cwd()
+class _AssessmentRun:
+    """State for one bounded gateway interaction.
 
-    def finish(result: dict) -> tuple[dict, dict]:
-        metadata["status"] = result["status"]
-        metadata["elapsed_seconds"] = round(time.monotonic() - started, 3)
-        return result, metadata
+    The flow is split into small phases so every unit stays within the
+    Gate 3b complexity budget (max 10 per function). Transport failures
+    never raise; they settle into advisory result/metadata pairs.
+    """
+
+    def __init__(
+        self,
+        package: dict,
+        deterministic_review: dict,
+        material_ids: set[str],
+        config: dict,
+        auth_headers: dict[str, str] | None = None,
+        _urlopen=None,
+        _counter=None,
+        _working_dir: Path | None = None,
+    ):
+        self.package = package
+        self.deterministic_review = deterministic_review
+        self.material_ids = material_ids
+        self.config = config
+        self.started = time.monotonic()
+        self.metadata = {
+            "api_style": config.get("api_style", DEFAULT_API_STYLE),
+            "model": config.get("model", DEFAULT_MODEL),
+            "attempt_count": 0,
+            "elapsed_seconds": 0.0,
+            "status": "failed",
+            "gateway_request_id": None,
+            "sizing_method": None,
+            "violation_observation_id": None,
+            "violation_rule": None,
+            "quarantine_path": None,
+            "redacted_preview": None,
+            "repair_attempts": 0,
+        }
+        self.headers = dict(auth_headers) if auth_headers is not None else _auth_headers()
+        self.deadline = self.started + max(1, int(config.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS)))
+        self.quarantine_dir = Path(_working_dir) if _working_dir is not None else Path.cwd()
+        self.opener = _urlopen or _post_json
+        self.counter = _counter or measure_input_tokens
+        self.attempts = 0
+        self.last_error: str | None = None
+        self.max_attempts = 1 + min(int(config.get("max_retries", 0)), HARD_MAX_RETRIES)
+        self.serialized = ""
+        self.contract_text = ""
+        self.max_tokens = 0
+        self.payload = None
+        self.extract = extract_openai_text
+        self.tmpdir = ""
+
+    def finish(self, result: dict) -> tuple[dict, dict]:
+        self.metadata["status"] = result["status"]
+        self.metadata["elapsed_seconds"] = round(time.monotonic() - self.started, 3)
+        return result, self.metadata
 
     def _retain(
+        self,
         raw_text: str,
         rule: str | None,
         observation_id: str | None,
@@ -638,8 +685,8 @@ def execute_assessment(
         an earlier successful path (double violation keeps the first file).
         """
         path = _quarantine_write(
-            raw_text, rule, observation_id, quarantine_dir,
-            candidate=candidate, deterministic_review=deterministic_review,
+            raw_text, rule, observation_id, self.quarantine_dir,
+            candidate=candidate, deterministic_review=self.deterministic_review,
         )
         if path is None:
             print(
@@ -647,7 +694,7 @@ def execute_assessment(
                 file=sys.stderr,
             )
             return
-        metadata["quarantine_path"] = str(path)
+        self.metadata["quarantine_path"] = str(path)
         print(
             "quality-gates: quarantined failed assessment to "
             f"{path} (human review only, never loaded into agent context)",
@@ -655,229 +702,230 @@ def execute_assessment(
         )
 
     def quarantine_failed(
+        self,
         raw_text: str,
         rule: str | None,
         observation_id: str | None,
         reason: str,
     ) -> tuple[dict, dict]:
         """Retain failing model output; degrade to metadata-only on write failure."""
-        _retain(raw_text, rule, observation_id)
-        return finish(_nonblocking_result("failed", deterministic_review, reason))
+        self._retain(raw_text, rule, observation_id)
+        return self.finish(_nonblocking_result("failed", self.deterministic_review, reason))
 
-    def attempt_repair(rule: str, observation_id: str) -> tuple[dict, dict]:
+    def _fetch_repair_response(self, repair_payload, remaining):
+        try:
+            response = self.opener(self.config["endpoint"], repair_payload, self.headers, remaining)
+            with response as resp:
+                repair_raw = resp.read().decode("utf-8")
+                repair_request_id = _request_id(resp.headers)
+                if repair_request_id is not None and self.metadata["gateway_request_id"] is None:
+                    # Keep the violating response id for tracing; the repair
+                    # id is less useful once the first attempt failed.
+                    self.metadata["gateway_request_id"] = repair_request_id
+                return ("ok", repair_raw)
+        except urllib.error.HTTPError as exc:
+            try:
+                exc.read()
+            except Exception:
+                pass
+            return ("http", exc)
+        except Exception as exc:  # noqa: BLE001 — classified by the caller, never raised
+            return ("transport", exc)
+
+    def _settle_repair_candidate(self, repair_text_out, rule, observation_id):
+        try:
+            repair_candidate = json.loads(_strip_code_fences(repair_text_out))
+        except ValueError:
+            self._retain(repair_text_out, rule, observation_id)
+            return self.finish(_nonblocking_result(
+                "failed", self.deterministic_review, "repair output was not valid JSON",
+            ))
+        try:
+            repair_result = validate_result(repair_candidate, self.deterministic_review, self.material_ids)
+        except (AssessmentContractError, TypeError, ValueError) as exc:
+            latest_rule = getattr(exc, "rule", "")
+            latest_id = _sanitize_echo(getattr(exc, "observation_id", ""))
+            self.metadata["violation_rule"] = latest_rule
+            self.metadata["violation_observation_id"] = latest_id
+            if self.metadata.get("redacted_preview") is None:
+                repair_preview = build_redacted_preview(repair_candidate, latest_rule)
+                if repair_preview is not None:
+                    self.metadata["redacted_preview"] = repair_preview
+            self._retain(repair_text_out, latest_rule, latest_id, repair_candidate)
+            return self.finish(_nonblocking_result(
+                "failed", self.deterministic_review,
+                f"model result violated contract: {_single_line(exc)}",
+            ))
+        return self.finish(repair_result)
+
+    def attempt_repair(self, rule: str, observation_id: str) -> tuple[dict, dict]:
         """Make exactly one repair call with fixed operator wording.
 
         Single shot: no transient-HTTP retry inside the repair, and the overall
         deadline still applies. A second violation keeps status failed with both
         attempts recorded; a clean retry completes normally.
         """
-        remaining = int(deadline - time.monotonic())
+        remaining = int(self.deadline - time.monotonic())
         if remaining <= 0:
-            return finish(_nonblocking_result("timed_out", deterministic_review, "assessment deadline expired"))
+            return self.finish(_nonblocking_result("timed_out", self.deterministic_review, "assessment deadline expired"))
         repair_text = build_repair_message(rule, observation_id)
-        if config["api_style"] == "anthropic":
+        if self.config["api_style"] == "anthropic":
             repair_payload = build_anthropic_payload(
-                serialized, contract_text, config, max_tokens, repair_text=repair_text
+                self.serialized, self.contract_text, self.config, self.max_tokens, repair_text=repair_text
             )
         else:
             repair_payload = build_openai_payload(
-                serialized, contract_text, config, max_tokens, repair_text=repair_text
+                self.serialized, self.contract_text, self.config, self.max_tokens, repair_text=repair_text
             )
-        metadata["attempt_count"] = attempts + 1
-        metadata["repair_attempts"] = 1
-        try:
-            response = opener(config["endpoint"], repair_payload, headers, remaining)
-            with response as resp:
-                repair_raw = resp.read().decode("utf-8")
-                repair_request_id = _request_id(resp.headers)
-                if repair_request_id is not None and metadata["gateway_request_id"] is None:
-                    # Keep the violating response id for tracing; the repair
-                    # id is less useful once the first attempt failed.
-                    metadata["gateway_request_id"] = repair_request_id
-        except urllib.error.HTTPError as exc:
-            try:
-                exc.read()
-            except Exception:
-                pass
-            return finish(_nonblocking_result(
-                "failed", deterministic_review, f"gateway request failed: HTTP {exc.code}",
+        self.metadata["attempt_count"] = self.attempts + 1
+        self.metadata["repair_attempts"] = 1
+        kind, value = self._fetch_repair_response(repair_payload, remaining)
+        if kind == "http":
+            exc = value
+            return self.finish(_nonblocking_result(
+                "failed", self.deterministic_review, f"gateway request failed: HTTP {exc.code}",
             ))
-        except Exception as exc:  # noqa: BLE001 — classified below, never raised
-            name = type(exc).__name__.lower()
-            message = str(exc).lower()
-            if "timed out" in name or "timeout" in name or "timed out" in message or "timeout" in message:
-                return finish(_nonblocking_result("timed_out", deterministic_review, "gateway request timed out"))
+        if kind == "transport":
+            exc = value
+            if _is_timeout_error(exc):
+                return self.finish(_nonblocking_result("timed_out", self.deterministic_review, "gateway request timed out"))
             last_error = _single_line(exc) or type(exc).__name__
-            return finish(_nonblocking_result(
-                "failed", deterministic_review, f"gateway transport error: {last_error}",
+            return self.finish(_nonblocking_result(
+                "failed", self.deterministic_review, f"gateway transport error: {last_error}",
             ))
         try:
-            repair_body = json.loads(repair_raw)
+            repair_body = json.loads(value)
         except ValueError:
             # Transport-layer bytes, nothing model-authored: no quarantine,
             # matching the main path for malformed gateway JSON.
-            return finish(_nonblocking_result(
-                "failed", deterministic_review, "repair output was not valid JSON",
+            return self.finish(_nonblocking_result(
+                "failed", self.deterministic_review, "repair output was not valid JSON",
             ))
-        repair_text_out = extract(repair_body)
+        repair_text_out = self.extract(repair_body)
         if not repair_text_out:
-            return finish(_nonblocking_result(
-                "failed", deterministic_review, "repair response held no usable text",
+            return self.finish(_nonblocking_result(
+                "failed", self.deterministic_review, "repair response held no usable text",
             ))
-        try:
-            repair_candidate = json.loads(_strip_code_fences(repair_text_out))
-        except ValueError:
-            _retain(repair_text_out, rule, observation_id)
-            return finish(_nonblocking_result(
-                "failed", deterministic_review, "repair output was not valid JSON",
+        return self._settle_repair_candidate(repair_text_out, rule, observation_id)
+
+    def prepare(self):
+        """Count materials, size the input, and build the payload.
+
+        Fills the run bundle on success. Returns a finished outcome when
+        an early gate (disabled, oversize, over budget) settles the run,
+        else None.
+        """
+        materials = self.package.get("materials", [])
+        excluded_count = sum(
+            1 for item in materials
+            if isinstance(item, dict) and item.get("kind") == "excluded"
+        )
+        self.metadata["excluded_materials"] = excluded_count
+        self.metadata["total_materials"] = len(materials)
+        self.metadata["exclude_patterns_count"] = len(self.config.get("exclude_patterns", []))
+
+        if not self.config.get("enabled"):
+            return self.finish(_nonblocking_result(
+                "unavailable", self.deterministic_review, "assessment disabled: set QUALITY_GATES_LLM_ENABLED=1",
             ))
-        try:
-            repair_result = validate_result(repair_candidate, deterministic_review, material_ids)
-        except (AssessmentContractError, TypeError, ValueError) as exc:
-            latest_rule = getattr(exc, "rule", "")
-            latest_id = _sanitize_echo(getattr(exc, "observation_id", ""))
-            metadata["violation_rule"] = latest_rule
-            metadata["violation_observation_id"] = latest_id
-            if metadata.get("redacted_preview") is None:
-                repair_preview = build_redacted_preview(repair_candidate, latest_rule)
-                if repair_preview is not None:
-                    metadata["redacted_preview"] = repair_preview
-            _retain(repair_text_out, latest_rule, latest_id, repair_candidate)
-            return finish(_nonblocking_result(
-                "failed", deterministic_review,
-                f"model result violated contract: {_single_line(exc)}",
+
+        self.contract_text = self.package.get("assessment_contract", "")
+        self.serialized = serialize_input_package(self.package)
+        if len(self.serialized.encode("utf-8")) > int(self.config.get("max_input_bytes", DEFAULT_MAX_INPUT_BYTES)):
+            return self.finish(_nonblocking_result(
+                "failed", self.deterministic_review,
+                f"assessment input exceeds QUALITY_GATES_LLM_MAX_INPUT_BYTES={self.config['max_input_bytes']}",
             ))
-        return finish(repair_result)
 
-    materials = package.get("materials", [])
-    excluded_count = sum(
-        1 for item in materials
-        if isinstance(item, dict) and item.get("kind") == "excluded"
-    )
-    metadata["excluded_materials"] = excluded_count
-    metadata["total_materials"] = len(materials)
-    metadata["exclude_patterns_count"] = len(config.get("exclude_patterns", []))
-
-    if not config.get("enabled"):
-        return finish(_nonblocking_result(
-            "unavailable", deterministic_review, "assessment disabled: set QUALITY_GATES_LLM_ENABLED=1",
-        ))
-
-    contract_text = package.get("assessment_contract", "")
-    serialized = serialize_input_package(package)
-    if len(serialized.encode("utf-8")) > int(config.get("max_input_bytes", DEFAULT_MAX_INPUT_BYTES)):
-        return finish(_nonblocking_result(
-            "failed", deterministic_review,
-            f"assessment input exceeds QUALITY_GATES_LLM_MAX_INPUT_BYTES={config['max_input_bytes']}",
-        ))
-
-    opener = _urlopen or _post_json
-    counter = _counter or measure_input_tokens
-    sizer_timeout = min(SIZER_SUB_TIMEOUT_SECONDS, max(1, int(deadline - time.monotonic())))
-    try:
-        input_tokens, sizing_method = counter(serialized, contract_text, config, headers, sizer_timeout)
-    except Exception:
-        input_tokens, sizing_method = estimate_tokens(serialized), "bytes div 4 fallback"
-    metadata["sizing_method"] = sizing_method
-    metadata["input_tokens"] = input_tokens
-
-    max_tokens = effective_max_output(input_tokens, config)
-    if max_tokens is None:
-        return finish(_nonblocking_result(
-            "failed", deterministic_review,
-            f"assessment input needs {input_tokens} tokens, exceeding max_model_len={config['max_model_len']}",
-        ))
-    metadata["output_budget"] = max_tokens
-
-    if config["api_style"] == "anthropic":
-        payload = build_anthropic_payload(serialized, contract_text, config, max_tokens)
-        extract = extract_anthropic_text
-    else:
-        payload = build_openai_payload(serialized, contract_text, config, max_tokens)
-        extract = extract_openai_text
-
-    tmpdir = tempfile.mkdtemp(prefix="qg-llm-")  # mkdtemp creates 0o700 atomically
-    try:
-        (Path(tmpdir) / "request.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    except OSError:
-        pass
-
-    attempts = 0
-    max_attempts = 1 + min(int(config.get("max_retries", 0)), HARD_MAX_RETRIES)
-    last_error: str | None = None
-    while attempts < max_attempts:
-        attempts += 1
-        metadata["attempt_count"] = attempts
-        remaining = max(1, int(deadline - time.monotonic()))
-        if remaining <= 0:
-            return finish(_nonblocking_result("timed_out", deterministic_review, "assessment deadline expired"))
+        sizer_timeout = min(SIZER_SUB_TIMEOUT_SECONDS, max(1, int(self.deadline - time.monotonic())))
         try:
-            response = opener(config["endpoint"], payload, headers, remaining)
+            input_tokens, sizing_method = self.counter(self.serialized, self.contract_text, self.config, self.headers, sizer_timeout)
+        except Exception:
+            input_tokens, sizing_method = estimate_tokens(self.serialized), "bytes div 4 fallback"
+        self.metadata["sizing_method"] = sizing_method
+        self.metadata["input_tokens"] = input_tokens
+
+        self.max_tokens = effective_max_output(input_tokens, self.config)
+        if self.max_tokens is None:
+            return self.finish(_nonblocking_result(
+                "failed", self.deterministic_review,
+                f"assessment input needs {input_tokens} tokens, exceeding max_model_len={self.config['max_model_len']}",
+            ))
+        self.metadata["output_budget"] = self.max_tokens
+
+        if self.config["api_style"] == "anthropic":
+            self.payload = build_anthropic_payload(self.serialized, self.contract_text, self.config, self.max_tokens)
+            self.extract = extract_anthropic_text
+        else:
+            self.payload = build_openai_payload(self.serialized, self.contract_text, self.config, self.max_tokens)
+            self.extract = extract_openai_text
+
+        self.tmpdir = tempfile.mkdtemp(prefix="qg-llm-")  # mkdtemp creates 0o700 atomically
+        try:
+            (Path(self.tmpdir) / "request.json").write_text(json.dumps(self.payload, indent=2), encoding="utf-8")
+        except OSError:
+            pass
+        return None
+
+    def _fetch_attempt(self, remaining):
+        try:
+            response = self.opener(self.config["endpoint"], self.payload, self.headers, remaining)
             with response as resp:
                 raw = resp.read().decode("utf-8")
-                metadata["gateway_request_id"] = _request_id(resp.headers)
+                self.metadata["gateway_request_id"] = _request_id(resp.headers)
+                return ("ok", raw)
         except urllib.error.HTTPError as exc:
             try:
                 exc.read()  # drain spooled error body to avoid ResourceWarning noise
             except Exception:
                 pass
-            last_error = f"gateway HTTP {exc.code}"
-            if exc.code in (401, 403):
-                try:
-                    (Path(tmpdir) / "error.txt").write_text(f"HTTP {exc.code}", encoding="utf-8")
-                except OSError:
-                    pass
-                return finish(_nonblocking_result(
-                    "failed", deterministic_review, f"gateway authentication failed: HTTP {exc.code}",
-                ))
-            if exc.code in TRANSIENT_HTTP_STATUSES and attempts < max_attempts:
-                time.sleep(0.2)
-                continue
-            if exc.code in TRANSIENT_HTTP_STATUSES:
-                return finish(_nonblocking_result(
-                    "failed", deterministic_review, f"gateway transient failure persisted: HTTP {exc.code}",
-                ))
-            return finish(_nonblocking_result(
-                "failed", deterministic_review, f"gateway request failed: HTTP {exc.code}",
-            ))
+            return ("http", exc)
         except _RedirectBlocked as exc:
-            return finish(_nonblocking_result(
-                "failed", deterministic_review, _single_line(exc),
-            ))
-        except Exception as exc:  # noqa: BLE001 — classified below, never raised
-            name = type(exc).__name__.lower()
-            message = str(exc).lower()
-            if "timed out" in name or "timeout" in name or "timed out" in message or "timeout" in message:
-                return finish(_nonblocking_result("timed_out", deterministic_review, "gateway request timed out"))
-            if any(token in message for token in (
-                "connection refused", "no route to host", "name or service not known",
-                "nodename nor servname", "network is unreachable", "failed to connect",
-            )):
-                return finish(_nonblocking_result("unavailable", deterministic_review, "gateway unreachable"))
-            last_error = _single_line(exc) or type(exc).__name__
-            return finish(_nonblocking_result(
-                "failed", deterministic_review, f"gateway transport error: {last_error}",
-            ))
+            return ("redirect", exc)
+        except Exception as exc:  # noqa: BLE001 — classified by the caller, never raised
+            return ("transport", exc)
 
-        try:
-            (Path(tmpdir) / "response.json").write_text(raw, encoding="utf-8")
-        except OSError:
-            pass
-        try:
-            body = json.loads(raw)
-        except ValueError:
-            return finish(_nonblocking_result("failed", deterministic_review, "gateway returned malformed JSON"))
-        text = extract(body)
-        if not text:
-            return finish(_nonblocking_result("failed", deterministic_review, "gateway response held no usable text"))
+    def _settle_http_error(self, exc):
+        """Returns None to retry, or a finished outcome."""
+        if exc.code in (401, 403):
+            try:
+                (Path(self.tmpdir) / "error.txt").write_text(f"HTTP {exc.code}", encoding="utf-8")
+            except OSError:
+                pass
+            return self.finish(_nonblocking_result(
+                "failed", self.deterministic_review, f"gateway authentication failed: HTTP {exc.code}",
+            ))
+        if exc.code in TRANSIENT_HTTP_STATUSES and self.attempts < self.max_attempts:
+            time.sleep(0.2)
+            return None
+        if exc.code in TRANSIENT_HTTP_STATUSES:
+            return self.finish(_nonblocking_result(
+                "failed", self.deterministic_review, f"gateway transient failure persisted: HTTP {exc.code}",
+            ))
+        return self.finish(_nonblocking_result(
+            "failed", self.deterministic_review, f"gateway request failed: HTTP {exc.code}",
+        ))
+
+    def _settle_transport_error(self, exc):
+        """Settles into a finished outcome; records last_error on transport failures."""
+        if _is_timeout_error(exc):
+            return self.finish(_nonblocking_result("timed_out", self.deterministic_review, "gateway request timed out"))
+        if _is_unreachable_message(str(exc).lower()):
+            return self.finish(_nonblocking_result("unavailable", self.deterministic_review, "gateway unreachable"))
+        self.last_error = _single_line(exc) or type(exc).__name__
+        return self.finish(_nonblocking_result(
+            "failed", self.deterministic_review, f"gateway transport error: {self.last_error}",
+        ))
+
+    def _settle_candidate(self, text):
         try:
             candidate = json.loads(_strip_code_fences(text))
         except ValueError:
-            return quarantine_failed(
+            return self.quarantine_failed(
                 text, None, None, "model output was not valid JSON"
             )
         try:
-            result = validate_result(candidate, deterministic_review, material_ids)
+            result = validate_result(candidate, self.deterministic_review, self.material_ids)
         except (AssessmentContractError, TypeError, ValueError) as exc:
             # Record the machine-readable violation (rule + observation id) for
             # downstream use; the human-facing result payload stays unchanged.
@@ -885,27 +933,84 @@ def execute_assessment(
             # quarantine or repair work; otherwise exactly one repair follows.
             rule = getattr(exc, "rule", "")
             observation_id = _sanitize_echo(getattr(exc, "observation_id", ""))
-            metadata["violation_rule"] = rule
-            metadata["violation_observation_id"] = observation_id
+            self.metadata["violation_rule"] = rule
+            self.metadata["violation_observation_id"] = observation_id
             preview = build_redacted_preview(candidate, rule)
             if preview is not None:
-                metadata["redacted_preview"] = preview
-            if int(deadline - time.monotonic()) <= 0:
-                return finish(_nonblocking_result(
-                    "timed_out", deterministic_review, "assessment deadline expired",
+                self.metadata["redacted_preview"] = preview
+            if int(self.deadline - time.monotonic()) <= 0:
+                return self.finish(_nonblocking_result(
+                    "timed_out", self.deterministic_review, "assessment deadline expired",
                 ))
-            _retain(
+            self._retain(
                 text,
                 rule,
                 observation_id,
                 candidate,
             )
-            return attempt_repair(rule, observation_id)
-        return finish(result)
+            return self.attempt_repair(rule, observation_id)
+        return self.finish(result)
 
-    return finish(_nonblocking_result(
-        "failed", deterministic_review, f"gateway request failed: {last_error or 'unknown error'}",
-    ))
+    def _run_attempt_loop(self):
+        while self.attempts < self.max_attempts:
+            self.attempts += 1
+            self.metadata["attempt_count"] = self.attempts
+            remaining = max(1, int(self.deadline - time.monotonic()))
+            if remaining <= 0:
+                return self.finish(_nonblocking_result("timed_out", self.deterministic_review, "assessment deadline expired"))
+            kind, value = self._fetch_attempt(remaining)
+            if kind == "http":
+                exc = value
+                self.last_error = f"gateway HTTP {exc.code}"
+                outcome = self._settle_http_error(exc)
+                if outcome is None:
+                    continue
+                return outcome
+            if kind == "redirect":
+                return self.finish(_nonblocking_result(
+                    "failed", self.deterministic_review, _single_line(value),
+                ))
+            if kind == "transport":
+                return self._settle_transport_error(value)
+            try:
+                (Path(self.tmpdir) / "response.json").write_text(value, encoding="utf-8")
+            except OSError:
+                pass
+            try:
+                body = json.loads(value)
+            except ValueError:
+                return self.finish(_nonblocking_result("failed", self.deterministic_review, "gateway returned malformed JSON"))
+            text = self.extract(body)
+            if not text:
+                return self.finish(_nonblocking_result("failed", self.deterministic_review, "gateway response held no usable text"))
+            return self._settle_candidate(text)
+
+        return self.finish(_nonblocking_result(
+            "failed", self.deterministic_review, f"gateway request failed: {self.last_error or 'unknown error'}",
+        ))
+
+    def run(self) -> tuple[dict, dict]:
+        done = self.prepare()
+        if done is not None:
+            return done
+        return self._run_attempt_loop()
+
+
+def execute_assessment(
+    package: dict,
+    deterministic_review: dict,
+    material_ids: set[str],
+    config: dict,
+    auth_headers: dict[str, str] | None = None,
+    _urlopen=None,
+    _counter=None,
+    _working_dir: Path | None = None,
+) -> tuple[dict, dict]:
+    """Run one bounded gateway interaction; never raises on transport failure."""
+    return _AssessmentRun(
+        package, deterministic_review, material_ids, config,
+        auth_headers, _urlopen, _counter, _working_dir,
+    ).run()
 
 
 def main() -> int:

@@ -105,6 +105,39 @@ class AssessmentContractError(ValueError):
         self.observation_id = observation_id if isinstance(observation_id, str) else ""
 
 
+def _reject_bad_pattern_shape(pattern: str) -> None:
+    if (
+        len(pattern) > MAX_EXCLUDE_PATTERN_LEN
+        or "\n" in pattern
+        or "\r" in pattern
+        or "\0" in pattern
+    ):
+        raise AssessmentContractError(
+            f"{EXCLUDE_ENV_VAR} holds an invalid pattern"
+        )
+    if pattern in (".", "./"):
+        raise AssessmentContractError(
+            f"{EXCLUDE_ENV_VAR} holds an invalid pattern"
+        )
+
+
+def _reject_bad_pattern_path(pattern: str) -> None:
+    try:
+        candidate = Path(pattern)
+    except ValueError:
+        raise AssessmentContractError(
+            f"{EXCLUDE_ENV_VAR} holds an invalid pattern"
+        )
+    if candidate.is_absolute() or ".." in candidate.parts:
+        raise AssessmentContractError(
+            f"{EXCLUDE_ENV_VAR} patterns must be repo-relative without '..'"
+        )
+    if "\\" in pattern:
+        raise AssessmentContractError(
+            f"{EXCLUDE_ENV_VAR} patterns must use posix '/' separators"
+        )
+
+
 def parse_exclude_patterns(raw: str | None) -> list[str]:
     """Parse operator-only exclusion globs. Never read from target content."""
     if raw is None:
@@ -124,33 +157,8 @@ def parse_exclude_patterns(raw: str | None) -> list[str]:
             f"{EXCLUDE_ENV_VAR} holds too many patterns (max {MAX_EXCLUDE_PATTERNS})"
         )
     for pattern in patterns:
-        if (
-            len(pattern) > MAX_EXCLUDE_PATTERN_LEN
-            or "\n" in pattern
-            or "\r" in pattern
-            or "\0" in pattern
-        ):
-            raise AssessmentContractError(
-                f"{EXCLUDE_ENV_VAR} holds an invalid pattern"
-            )
-        if pattern in (".", "./"):
-            raise AssessmentContractError(
-                f"{EXCLUDE_ENV_VAR} holds an invalid pattern"
-            )
-        try:
-            candidate = Path(pattern)
-        except ValueError:
-            raise AssessmentContractError(
-                f"{EXCLUDE_ENV_VAR} holds an invalid pattern"
-            )
-        if candidate.is_absolute() or ".." in candidate.parts:
-            raise AssessmentContractError(
-                f"{EXCLUDE_ENV_VAR} patterns must be repo-relative without '..'"
-            )
-        if "\\" in pattern:
-            raise AssessmentContractError(
-                f"{EXCLUDE_ENV_VAR} patterns must use posix '/' separators"
-            )
+        _reject_bad_pattern_shape(pattern)
+        _reject_bad_pattern_path(pattern)
     return patterns
 
 
@@ -391,6 +399,43 @@ def _unreadable_record(path: Path, root: Path, error: OSError) -> dict:
     }
 
 
+def _record_subdir(dirpath: str, dirname: str, dirnames: list, root: Path,
+                   patterns: list, materials: list) -> None:
+    path = Path(dirpath) / dirname
+    if path.is_symlink():
+        relative = path.relative_to(root).as_posix()
+        if _is_excluded(relative, patterns):
+            materials.append(_excluded_record(path, root))
+        else:
+            materials.append(_material_record(path, root))
+        dirnames.remove(dirname)
+        return
+    try:
+        relative = path.relative_to(root).as_posix()
+    except ValueError:
+        dirnames.remove(dirname)
+        return
+    collapsed = _collapse_pattern_for_dir(relative, patterns)
+    if collapsed is not None:
+        materials.append(_collapsed_excluded_record(path, root, collapsed))
+        dirnames.remove(dirname)
+
+
+def _record_file_material(dirpath: str, filename: str, root: Path,
+                           patterns: list, materials: list) -> None:
+    if filename == ".git":
+        return
+    path = Path(dirpath) / filename
+    try:
+        relative = path.relative_to(root).as_posix()
+    except ValueError:
+        return
+    if _is_excluded(relative, patterns):
+        materials.append(_excluded_record(path, root))
+    else:
+        materials.append(_material_record(path, root))
+
+
 def build_input_package(
     root: Path,
     deterministic_review: dict,
@@ -424,36 +469,9 @@ def build_input_package(
     for dirpath, dirnames, filenames in os.walk(root, onerror=onerror, followlinks=False):
         dirnames[:] = [name for name in dirnames if name != ".git"]
         for dirname in list(dirnames):
-            path = Path(dirpath) / dirname
-            if path.is_symlink():
-                relative = path.relative_to(root).as_posix()
-                if _is_excluded(relative, patterns):
-                    materials.append(_excluded_record(path, root))
-                else:
-                    materials.append(_material_record(path, root))
-                dirnames.remove(dirname)
-                continue
-            try:
-                relative = path.relative_to(root).as_posix()
-            except ValueError:
-                dirnames.remove(dirname)
-                continue
-            collapsed = _collapse_pattern_for_dir(relative, patterns)
-            if collapsed is not None:
-                materials.append(_collapsed_excluded_record(path, root, collapsed))
-                dirnames.remove(dirname)
+            _record_subdir(dirpath, dirname, dirnames, root, patterns, materials)
         for filename in sorted(filenames):
-            if filename == ".git":
-                continue
-            path = Path(dirpath) / filename
-            try:
-                relative = path.relative_to(root).as_posix()
-            except ValueError:
-                continue
-            if _is_excluded(relative, patterns):
-                materials.append(_excluded_record(path, root))
-            else:
-                materials.append(_material_record(path, root))
+            _record_file_material(dirpath, filename, root, patterns, materials)
 
     materials.sort(key=lambda item: item["path"])
     return {
@@ -644,6 +662,53 @@ def redact_preview_text(value: object) -> str:
     return text
 
 
+def _clean_preview_id(raw_id: object) -> str:
+    if isinstance(raw_id, str):
+        return "".join(
+            char if char.isprintable() else "?"
+            for char in raw_id.replace("\r", " ").replace("\n", " ")
+        )[:_PREVIEW_ID_LIMIT]
+    return ""
+
+
+def _collect_preview_observations(observations: object) -> tuple[list, bool]:
+    items: list[dict] = []
+    truncated = False
+    if not isinstance(observations, list):
+        return items, truncated
+    for observation in observations:
+        if not isinstance(observation, dict):
+            continue
+        if len(items) >= PREVIEW_MAX_ITEMS:
+            truncated = True
+            break
+        statement = observation.get("statement")
+        if not isinstance(statement, str) or not statement.strip():
+            continue
+        items.append({
+            "id": _clean_preview_id(observation.get("id")),
+            "statement_preview": redact_preview_text(statement)[:PREVIEW_MAX_CHARS],
+        })
+    return items, truncated
+
+
+def _collect_preview_uncertainties(uncertainties: object) -> tuple[list, bool]:
+    previews: list[str] = []
+    truncated = False
+    if not isinstance(uncertainties, list):
+        return previews, truncated
+    for uncertainty in uncertainties:
+        if not isinstance(uncertainty, str) or not uncertainty.strip():
+            continue
+        if len(previews) >= PREVIEW_MAX_ITEMS:
+            truncated = True
+            break
+        previews.append(
+            redact_preview_text(uncertainty)[:PREVIEW_MAX_CHARS]
+        )
+    return previews, truncated
+
+
 def build_redacted_preview(candidate: object, rule: str = "") -> dict | None:
     """Build a display-safe preview envelope for a rejected candidate.
 
@@ -654,43 +719,11 @@ def build_redacted_preview(candidate: object, rule: str = "") -> dict | None:
     """
     if not isinstance(candidate, dict):
         return None
-    observations = candidate.get("observations")
-    uncertainties = candidate.get("uncertainties")
-    items: list[dict] = []
-    truncated = False
-    if isinstance(observations, list):
-        for observation in observations:
-            if not isinstance(observation, dict):
-                continue
-            if len(items) >= PREVIEW_MAX_ITEMS:
-                truncated = True
-                break
-            raw_id = observation.get("id")
-            if isinstance(raw_id, str):
-                clean_id = "".join(
-                    char if char.isprintable() else "?"
-                    for char in raw_id.replace("\r", " ").replace("\n", " ")
-                )[:_PREVIEW_ID_LIMIT]
-            else:
-                clean_id = ""
-            statement = observation.get("statement")
-            if not isinstance(statement, str) or not statement.strip():
-                continue
-            items.append({
-                "id": clean_id,
-                "statement_preview": redact_preview_text(statement)[:PREVIEW_MAX_CHARS],
-            })
-    uncertainty_previews: list[str] = []
-    if isinstance(uncertainties, list):
-        for uncertainty in uncertainties:
-            if not isinstance(uncertainty, str) or not uncertainty.strip():
-                continue
-            if len(uncertainty_previews) >= PREVIEW_MAX_ITEMS:
-                truncated = True
-                break
-            uncertainty_previews.append(
-                redact_preview_text(uncertainty)[:PREVIEW_MAX_CHARS]
-            )
+    items, obs_truncated = _collect_preview_observations(candidate.get("observations"))
+    uncertainty_previews, unc_truncated = _collect_preview_uncertainties(
+        candidate.get("uncertainties")
+    )
+    truncated = obs_truncated or unc_truncated
     if not items and not uncertainty_previews:
         return None
     return {
@@ -700,6 +733,39 @@ def build_redacted_preview(candidate: object, rule: str = "") -> dict | None:
         "uncertainties": uncertainty_previews,
         "truncated": truncated,
     }
+
+
+def _offending_observation(observations: object, observation_id: str) -> list[dict]:
+    if isinstance(observations, list):
+        for observation in observations:
+            if (
+                isinstance(observation, dict)
+                and observation.get("id") == observation_id
+            ):
+                statement = observation.get("statement")
+                if isinstance(statement, str) and statement.strip():
+                    return [{
+                        "kind": "observation",
+                        "id": observation_id,
+                        "text_preview": redact_preview_text(statement)[:PREVIEW_MAX_CHARS],
+                    }]
+    return []
+
+
+def _offending_uncertainties(uncertainties: object) -> list[dict]:
+    if not isinstance(uncertainties, list):
+        return []
+    items = []
+    for uncertainty in uncertainties:
+        if not isinstance(uncertainty, str) or not uncertainty.strip():
+            continue
+        if len(items) >= PREVIEW_MAX_ITEMS:
+            break
+        items.append({
+            "kind": "uncertainty",
+            "text_preview": redact_preview_text(uncertainty)[:PREVIEW_MAX_CHARS],
+        })
+    return items
 
 
 def build_offending_items(
@@ -718,35 +784,8 @@ def build_offending_items(
         if not isinstance(candidate, dict):
             return []
         if isinstance(observation_id, str) and observation_id:
-            observations = candidate.get("observations")
-            if isinstance(observations, list):
-                for observation in observations:
-                    if (
-                        isinstance(observation, dict)
-                        and observation.get("id") == observation_id
-                    ):
-                        statement = observation.get("statement")
-                        if isinstance(statement, str) and statement.strip():
-                            return [{
-                                "kind": "observation",
-                                "id": observation_id,
-                                "text_preview": redact_preview_text(statement)[:PREVIEW_MAX_CHARS],
-                            }]
-            return []
-        uncertainties = candidate.get("uncertainties")
-        if not isinstance(uncertainties, list):
-            return []
-        items = []
-        for uncertainty in uncertainties:
-            if not isinstance(uncertainty, str) or not uncertainty.strip():
-                continue
-            if len(items) >= PREVIEW_MAX_ITEMS:
-                break
-            items.append({
-                "kind": "uncertainty",
-                "text_preview": redact_preview_text(uncertainty)[:PREVIEW_MAX_CHARS],
-            })
-        return items
+            return _offending_observation(candidate.get("observations"), observation_id)
+        return _offending_uncertainties(candidate.get("uncertainties"))
     except Exception:
         return []
 
@@ -762,12 +801,7 @@ def _failed_result(deterministic_review: dict, reason: str) -> dict:
     }
 
 
-def validate_result(
-    result: dict,
-    deterministic_review: dict,
-    material_ids: set[str],
-) -> dict:
-    """Validate and return an advisory result without changing its values."""
+def _validate_result_head(result: dict, deterministic_review: dict) -> str:
     if not isinstance(result, dict):
         _error("result must be an object", rule="result_shape")
     unknown_result_fields = set(result) - RESULT_FIELDS
@@ -787,102 +821,124 @@ def validate_result(
             "deterministic_review must exactly match the deterministic review",
             rule="deterministic_review",
         )
+    return status
 
+
+def _validate_reference(reference: dict, observation_id: str,
+                         material_ids: set[str]) -> None:
+    if not isinstance(reference, dict):
+        _error(
+            f"observation {observation_id} has an invalid source reference",
+            rule="observation_source_reference_shape", observation_id=observation_id,
+        )
+    unknown_reference_fields = set(reference) - REFERENCE_FIELDS
+    if unknown_reference_fields:
+        _error(
+            f"source reference has unknown fields: {sorted(unknown_reference_fields)}",
+            rule="observation_source_reference_fields", observation_id=observation_id,
+        )
+    if (not isinstance(reference.get("material_id"), str)
+            or not isinstance(reference.get("path"), str)
+            or reference["path"] != reference["material_id"]
+            or not _is_relative_material_path(reference["path"])):
+        _error(
+            f"observation {observation_id} has an invalid source reference",
+            rule="observation_source_reference_valid", observation_id=observation_id,
+        )
+    if reference["material_id"] not in material_ids:
+        _error(
+            f"observation {observation_id} references unknown material",
+            rule="observation_unknown_material", observation_id=observation_id,
+        )
+
+
+def _validate_observation(observation: dict, observation_ids: set,
+                           material_ids: set[str]) -> None:
+    if not isinstance(observation, dict):
+        _error("each observation must be an object", rule="observation_shape")
+    observation_id = observation.get("id")
+    unknown_observation_fields = set(observation) - OBSERVATION_FIELDS
+    if unknown_observation_fields:
+        _error(
+            f"observation has unknown fields: {sorted(unknown_observation_fields)}",
+            rule="observation_unknown_fields",
+            observation_id=observation_id if isinstance(observation_id, str) else "",
+        )
+    _validate_identifier(
+        observation_id, "observation id",
+        rule="observation_id_shape", observation_id=observation_id,
+    )
+    _validate_advisory_text(
+        observation.get("statement"), "observation statement",
+        rule="observation_statement", observation_id=observation_id,
+    )
+    references = observation.get("source_references")
+    if observation_id in observation_ids:
+        _error(
+            "observations need unique ids",
+            rule="observation_duplicate_id", observation_id=observation_id,
+        )
+    if not isinstance(references, list) or not references:
+        _error(
+            f"observation {observation_id} needs source_references",
+            rule="observation_source_references", observation_id=observation_id,
+        )
+    for reference in references:
+        _validate_reference(reference, observation_id, material_ids)
+    observation_ids.add(observation_id)
+
+
+def _validate_observations(result: dict, material_ids: set[str]) -> set:
     observations = result.get("observations")
     if not isinstance(observations, list):
         _error("observations must be a list", rule="observations_shape")
     observation_ids = set()
     for observation in observations:
-        if not isinstance(observation, dict):
-            _error("each observation must be an object", rule="observation_shape")
-        observation_id = observation.get("id")
-        unknown_observation_fields = set(observation) - OBSERVATION_FIELDS
-        if unknown_observation_fields:
-            _error(
-                f"observation has unknown fields: {sorted(unknown_observation_fields)}",
-                rule="observation_unknown_fields",
-                observation_id=observation_id if isinstance(observation_id, str) else "",
-            )
-        _validate_identifier(
-            observation_id, "observation id",
-            rule="observation_id_shape", observation_id=observation_id,
-        )
-        _validate_advisory_text(
-            observation.get("statement"), "observation statement",
-            rule="observation_statement", observation_id=observation_id,
-        )
-        references = observation.get("source_references")
-        if observation_id in observation_ids:
-            _error(
-                "observations need unique ids",
-                rule="observation_duplicate_id", observation_id=observation_id,
-            )
-        if not isinstance(references, list) or not references:
-            _error(
-                f"observation {observation_id} needs source_references",
-                rule="observation_source_references", observation_id=observation_id,
-            )
-        for reference in references:
-            if not isinstance(reference, dict):
-                _error(
-                    f"observation {observation_id} has an invalid source reference",
-                    rule="observation_source_reference_shape", observation_id=observation_id,
-                )
-            unknown_reference_fields = set(reference) - REFERENCE_FIELDS
-            if unknown_reference_fields:
-                _error(
-                    f"source reference has unknown fields: {sorted(unknown_reference_fields)}",
-                    rule="observation_source_reference_fields", observation_id=observation_id,
-                )
-            if (not isinstance(reference.get("material_id"), str)
-                    or not isinstance(reference.get("path"), str)
-                    or reference["path"] != reference["material_id"]
-                    or not _is_relative_material_path(reference["path"])):
-                _error(
-                    f"observation {observation_id} has an invalid source reference",
-                    rule="observation_source_reference_valid", observation_id=observation_id,
-                )
-            if reference["material_id"] not in material_ids:
-                _error(
-                    f"observation {observation_id} references unknown material",
-                    rule="observation_unknown_material", observation_id=observation_id,
-                )
-        observation_ids.add(observation_id)
+        _validate_observation(observation, observation_ids, material_ids)
+    return observation_ids
 
+
+def _validate_recommendation(recommendation: dict, observation_ids: set) -> None:
+    if not isinstance(recommendation, dict):
+        _error("each recommendation must be an object", rule="recommendation_shape")
+    unknown_recommendation_fields = set(recommendation) - RECOMMENDATION_FIELDS
+    if unknown_recommendation_fields:
+        _error(
+            f"recommendation has unknown fields: {sorted(unknown_recommendation_fields)}",
+            rule="recommendation_unknown_fields",
+        )
+    text = recommendation.get("text", "")
+    _validate_identifier(recommendation.get("id"), "recommendation id", rule="recommendation_id")
+    _validate_advisory_text(text, "recommendation text", rule="recommendation_text")
+    related = recommendation.get("related_observation_ids", [])
+    if (not isinstance(related, list)
+            or any(not isinstance(item, str) for item in related)):
+        _error(
+            "recommendation related_observation_ids must be a list",
+            rule="recommendation_related_shape",
+        )
+    if not set(related).issubset(observation_ids):
+        _error(
+            "recommendation references an unknown observation",
+            rule="recommendation_unknown_observation",
+        )
+    if (len(related) != 1
+            or text != f"Can the project owner validate observation {related[0]}?"):
+        _error(
+            "recommendations must use the fixed validation-question format",
+            rule="recommendation_format",
+        )
+
+
+def _validate_recommendations(result: dict, observation_ids: set) -> None:
     recommendations = result.get("recommendations")
     if not isinstance(recommendations, list):
         _error("recommendations must be a list", rule="recommendations_shape")
     for recommendation in recommendations:
-        if not isinstance(recommendation, dict):
-            _error("each recommendation must be an object", rule="recommendation_shape")
-        unknown_recommendation_fields = set(recommendation) - RECOMMENDATION_FIELDS
-        if unknown_recommendation_fields:
-            _error(
-                f"recommendation has unknown fields: {sorted(unknown_recommendation_fields)}",
-                rule="recommendation_unknown_fields",
-            )
-        text = recommendation.get("text", "")
-        _validate_identifier(recommendation.get("id"), "recommendation id", rule="recommendation_id")
-        _validate_advisory_text(text, "recommendation text", rule="recommendation_text")
-        related = recommendation.get("related_observation_ids", [])
-        if (not isinstance(related, list)
-                or any(not isinstance(item, str) for item in related)):
-            _error(
-                "recommendation related_observation_ids must be a list",
-                rule="recommendation_related_shape",
-            )
-        if not set(related).issubset(observation_ids):
-            _error(
-                "recommendation references an unknown observation",
-                rule="recommendation_unknown_observation",
-            )
-        if (len(related) != 1
-                or text != f"Can the project owner validate observation {related[0]}?"):
-            _error(
-                "recommendations must use the fixed validation-question format",
-                rule="recommendation_format",
-            )
+        _validate_recommendation(recommendation, observation_ids)
 
+
+def _validate_result_tail(result: dict, status: str) -> None:
     uncertainties = result.get("uncertainties")
     if not isinstance(uncertainties, list):
         _error("uncertainties must be a list of non-empty strings", rule="uncertainties_shape")
@@ -903,6 +959,18 @@ def validate_result(
                 f"{status} results need a concise failure_reason",
                 rule="failure_reason_shape",
             )
+
+
+def validate_result(
+    result: dict,
+    deterministic_review: dict,
+    material_ids: set[str],
+) -> dict:
+    """Validate and return an advisory result without changing its values."""
+    status = _validate_result_head(result, deterministic_review)
+    observation_ids = _validate_observations(result, material_ids)
+    _validate_recommendations(result, observation_ids)
+    _validate_result_tail(result, status)
 
     return result
 

@@ -36,6 +36,20 @@ def parse_frontmatter(text: str) -> tuple[dict, str]:
     return fm, body
 
 
+def _check_resources_section(skill_dir: Path, body: str, errors: list) -> None:
+    # Cross-check bundled-resource paths named in the "## Resources" section only.
+    # The rest of the body is full of *example* paths (files the skill writes
+    # into a target project, like CLAUDE.md or docs/quality-gates.md) which are
+    # not supposed to exist inside the skill package itself — checking those
+    # would flag correct skills as broken.
+    resources_match = re.search(r"^## Resources\n(.*?)(?:\n## |\Z)", body, re.S | re.M)
+    if resources_match:
+        for rel in re.findall(r"`([\w./-]+\.(?:md|py|sh))`", resources_match.group(1)):
+            if not (skill_dir / rel).exists():
+                errors.append(f"SKILL.md's Resources section references '{rel}' "
+                              "but that file does not exist in the skill.")
+
+
 def validate(skill_dir: Path) -> list[str]:
     errors = []
     skill_md = skill_dir / "SKILL.md"
@@ -63,17 +77,7 @@ def validate(skill_dir: Path) -> list[str]:
         errors.append(f"SKILL.md is {n_lines} lines; recommended limit is {MAX_RECOMMENDED_LINES}. "
                       "Consider moving detail into references/.")
 
-    # Cross-check bundled-resource paths named in the "## Resources" section only.
-    # The rest of the body is full of *example* paths (files the skill writes
-    # into a target project, like CLAUDE.md or docs/quality-gates.md) which are
-    # not supposed to exist inside the skill package itself — checking those
-    # would flag correct skills as broken.
-    resources_match = re.search(r"^## Resources\n(.*?)(?:\n## |\Z)", body, re.S | re.M)
-    if resources_match:
-        for rel in re.findall(r"`([\w./-]+\.(?:md|py|sh))`", resources_match.group(1)):
-            if not (skill_dir / rel).exists():
-                errors.append(f"SKILL.md's Resources section references '{rel}' "
-                              "but that file does not exist in the skill.")
+    _check_resources_section(skill_dir, body, errors)
 
     return errors
 
