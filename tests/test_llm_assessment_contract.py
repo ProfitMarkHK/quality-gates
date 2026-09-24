@@ -675,5 +675,46 @@ class LlmAssessmentContractTests(unittest.TestCase):
         self.assertEqual(real_collapsed, {"keep.py"})
 
 
+class AdvisoryTextSofteningTests(unittest.TestCase):
+    """AIDEV-548: descriptive "configured" and hedged predicates pass."""
+
+    def assert_passes(self, text):
+        from llm_assessment_contract import _validate_advisory_text
+
+        try:
+            _validate_advisory_text(text, "statement", rule="r", observation_id="o")
+        except AssessmentContractError as exc:
+            self.fail(f"should pass but failed ({exc.rule}): {text}")
+
+    def assert_fails(self, text):
+        from llm_assessment_contract import _validate_advisory_text
+
+        with self.assertRaises(AssessmentContractError):
+            _validate_advisory_text(text, "statement", rule="r", observation_id="o")
+
+    def test_descriptive_configured_passes(self):
+        self.assert_passes(
+            "The project uses a custom internal LLM gateway configured via "
+            "a hardcoded base URL and model identifier, which is not a "
+            "standard public provider and may not be recognized by "
+            "deterministic review."
+        )
+        self.assert_passes("Endpoint configured in operator .env.")
+
+    def test_hedged_single_word_predicates_pass(self):
+        self.assert_passes("Ruff appears to be configured.")
+        self.assert_passes("The suite appears to be passing.")
+        self.assert_passes("The tool seems installed.")
+
+    def test_bare_state_claims_still_fail(self):
+        self.assert_fails("Pytest is passing.")
+        self.assert_fails("The tool is installed.")
+        self.assert_fails("Run the checks now.")
+        self.assert_fails("Install ruff.")
+
+    def test_hedge_does_not_launder_compound_claims(self):
+        self.assert_fails("Appears to be configured and passing daily.")
+
+
 if __name__ == "__main__":
     unittest.main()

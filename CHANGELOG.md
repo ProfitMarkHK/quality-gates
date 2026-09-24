@@ -6,6 +6,19 @@ tagged release (see `docs/deployment-readiness.md`).
 
 ## Unreleased
 
+### Soften advisory-text rule for descriptive configured plus hedges (AIDEV-548)
+
+The validator rejected benign descriptive prose — a live quarantine flagged
+an observation solely for "configured" in "configured via a hardcoded base
+URL". `_validate_advisory_text` no longer denylists "configured" (static
+config presence, verifiable from cited material; "installed"/"passing"
+still assert unverifiable runtime state) and masks single-word hedged
+predicates ("appears/seems (to be) X") before the lexical checks. The
+single-word bound holds: "appears to be passing" passes but "appears to be
+configured and passing" still fails on "passing". The redaction
+neutralizer shows "configured" plainly; repair and fail-closed paths
+unchanged. See ADR 0005 for the accepted residual risk.
+
 ### Calibrate advisory observations to cut dependency noise (AIDEV-549)
 
 Live runs filled all 30 observation slots with one-per-dependency filler (each manifest dependency and standard-library module as a custom technology). The fixed assessment contract now requires gate-relevance (absent from the deterministic review AND changing gate mapping, or auth/secret handling, custom build/test/security tooling, vendored code), excludes by category (detected-language standard library, manifest-pinned versions, generic HTTP/serialization/test/build libs unless custom-configured), groups related items, caps at 8 with empty valid. Category-based so it transfers across stacks — no package blocklist.

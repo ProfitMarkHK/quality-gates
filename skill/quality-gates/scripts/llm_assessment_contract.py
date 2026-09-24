@@ -36,8 +36,10 @@ RECOMMENDATION_FIELDS = {"id", "text", "related_observation_ids"}
 SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 # Verbs whose bare form in advisory prose is instruction-shaped. Kept in sync
 # with _validate_advisory_text and the preview neutralizer below.
+# AIDEV-548: "configured" is intentionally absent — it describes static
+# config presence, verifiable from cited material.
 UNSAFE_VERBS = ("run", "execute", "install", "invoke", "command")
-UNSAFE_STATES = ("installed", "configured", "passing")
+UNSAFE_STATES = ("installed", "passing")
 # Commands that are only dangerous with a target (flags, paths, URLs). Bare
 # mentions ("uses docker for builds") stay valid; invocations do not.
 PREVIEW_DANGEROUS_VERBS = (
@@ -495,13 +497,23 @@ def _validate_identifier(value, label, rule="", observation_id=""):
         _error(f"{label} must be a safe identifier", rule=rule, observation_id=observation_id)
 
 
+# AIDEV-548: hedged single-word predicates are explicitly not claims
+# ("ruff appears to be configured"), so mask them before the lexical
+# checks. The single-word bound is load-bearing: "appears to be passing"
+# passes, but "appears to be configured and passing" still fails on the
+# unmasked "passing". The mask target "hedged" contains no banned token.
+_HEDGE_MASK = re.compile(
+    r"\b(?:appears|seems)(?:\s+to\s+be)?\s+[A-Za-z]+\b", re.IGNORECASE
+)
+
+
 def _validate_advisory_text(value, label, rule="", observation_id=""):
     if not isinstance(value, str) or not value.strip() or "\n" in value:
         _error(
             f"{label} must be a non-empty single-line string",
             rule=rule, observation_id=observation_id,
         )
-    lowered = value.lower()
+    lowered = _HEDGE_MASK.sub("hedged", value.lower())
     # AIDEV-545: a bare `;` is ordinary English clause punctuation
     # ("unknown; they could be internal tools"), so only a semicolon that
     # cannot be prose punctuation still fails: one not followed by
@@ -521,8 +533,11 @@ def _validate_advisory_text(value, label, rule="", observation_id=""):
         or re.search(r"(?<!\[)://", lowered)
         or re.search(r"\s\|\s", value)
         or re.search(
+            # AIDEV-548: "configured" describes static config presence,
+            # verifiable from cited material — only "installed"/"passing"
+            # assert unverifiable runtime state.
             r"\b(?:run|execute|install|invoke|command)\b|"
-            r"\b(?:installed|configured|passing)\b",
+            r"\b(?:installed|passing)\b",
             lowered,
         )
         or re.search(_DANGEROUS_RE, lowered)
@@ -551,7 +566,6 @@ PREVIEW_VERB_TAGS = {
     "invoke": "[call]",
     "command": "[instruction]",
     "installed": "[setup-state]",
-    "configured": "[config-state]",
     "passing": "[test-state]",
 }
 PREVIEW_TOOL_VERB_TAGS = {
@@ -612,8 +626,10 @@ def redact_preview_text(value: object) -> str:
         flags=re.IGNORECASE,
     )
     text = re.sub(
+        # AIDEV-548: "configured" is no longer denylisted, so previews show
+        # it plainly instead of neutralizing descriptive prose.
         r"\b(?:run|execute|install|invoke|command)\b"
-        r"|\b(?:installed|configured|passing)\b",
+        r"|\b(?:installed|passing)\b",
         _preview_tag,
         text,
         flags=re.IGNORECASE,
