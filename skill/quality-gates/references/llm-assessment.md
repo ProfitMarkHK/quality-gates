@@ -135,7 +135,10 @@ untrusted data, and validates every result through the contract validator
 before use. Transport metadata (API style, model, attempt count, elapsed
 time, status, gateway request ID) stays outside the validated advisory
 result. Raw prompts and responses live only in a secure temporary directory
-outside the target project; logs never contain prompts, material, raw
+outside the target project; failing model output retained for human review
+lives under a `quarantine/` subdirectory of the operator working directory
+(never at the config directory top level, never inside the target);
+logs never contain prompts, material, raw
 output, or credentials.
 
 Request policy: OpenAI-compatible chat completions by default,
@@ -154,8 +157,10 @@ silent truncation, sampling, or omission.
 
 Contract-invalid model output stays fail-closed: status `failed`, empty
 observations, byte-identical deterministic review. The exact raw text is
-retained in a timestamped quarantine file in the operator working directory
-(never inside the target), with an untrusted-data header; the path is printed
+retained in a timestamped quarantine file under a `quarantine/`
+subdirectory of the operator working directory
+(never inside the target, never at the config directory top level),
+with an untrusted-data header; the path is printed
 on stderr and recorded in result metadata. Quarantine files are human-only:
 nothing auto-loads them and nothing feeds them back into agent context or
 gate decisions.

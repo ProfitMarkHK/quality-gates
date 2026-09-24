@@ -200,7 +200,7 @@ class SeamPreviewTests(unittest.TestCase):
             self.assertNotIn("Please run npm install now.", json.dumps(metadata).replace(
                 json.dumps(preview), ""))
             # raw still quarantined for humans
-            quarantine = list(Path(workdir).glob("qg-quarantine-*.json"))
+            quarantine = list((Path(workdir) / "quarantine").glob("qg-quarantine-*.json"))
             self.assertTrue(quarantine)
             self.assertIn("Please run npm install now.",
                           quarantine[0].read_text(encoding="utf-8"))

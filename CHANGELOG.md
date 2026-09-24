@@ -6,6 +6,19 @@ tagged release (see `docs/deployment-readiness.md`).
 
 ## Unreleased
 
+### Quarantine output under a dedicated subdirectory (AIDEV-544)
+
+Failing assessments were quarantined into the operator working directory,
+which in practice is the config directory holding the `.env` — data
+outputs accumulating alongside configuration. Quarantine files now default
+to a `quarantine/` subdirectory (created 0700) under the working directory:
+nothing new lands at the config top level. File guarantees are unchanged
+(0600 via atomic O_CREAT|O_EXCL, same human-review envelope), as are the
+never-inside-target invariant and the config-inside-target refusal.
+Covered by updated quarantine tests plus a config-dir-with-`.env` case.
+
+
+
 ### Display-only redacted previews for rejected LLM observations
 
 Advisory-text rejections discarded the whole assessment while the raw text

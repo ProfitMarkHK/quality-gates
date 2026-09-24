@@ -8,7 +8,10 @@ a visible non-blocking advisory status instead of failing the review.
 
 Standard library only. No provider SDK, no package installation, no shell
 execution. Raw prompts and responses live only in a secure temporary
-directory outside the target project; logs carry status, timing, style,
+directory outside the target project; failing model output retained for
+human review lives under a quarantine/ subdirectory of the operator working
+directory (never at the config directory top level, never inside the
+target); logs carry status, timing, style,
 model, attempt count, and gateway request ID — never prompts, material,
 raw output, or credentials.
 """
@@ -468,6 +471,29 @@ QUARANTINE_HEADER = (
     "A human re-derives any signal from the repository."
 )
 
+QUARANTINE_SUBDIR = "quarantine"
+
+
+def _ensure_quarantine_dir(working_dir: Path) -> Path | None:
+    """Return the dedicated quarantine output dir, creating it 0700.
+
+    The config directory holds only configuration (`.env`); quarantine
+    files are data outputs and live under `<working_dir>/quarantine/`
+    so failed runs never add files at the config directory top level.
+    Returns None when the directory cannot be prepared so the caller
+    can degrade to metadata-only. Never raises.
+    """
+    qdir = working_dir / QUARANTINE_SUBDIR
+    try:
+        qdir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return None
+    try:
+        os.chmod(qdir, 0o700)
+    except OSError:
+        pass
+    return qdir
+
 
 def _quarantine_write(
     raw_text: str,
@@ -477,13 +503,14 @@ def _quarantine_write(
 ) -> Path | None:
     """Retain failing model output for human review; never raises.
 
-    Writes a restrictive-permission (0o600) JSON envelope into the operator
-    working directory (never inside the target). The file is created
-    atomically with 0o600 via O_CREAT|O_EXCL so there is no umask window
-    exposing raw model text. The file is operator-owned: there is no
-    auto-cleanup or rotation in v1. On any write failure it returns None
-    so the caller can degrade to metadata-only without failing the
-    assessment.
+    Writes a restrictive-permission (0o600) JSON envelope into the
+    dedicated `<working_dir>/quarantine/` output directory (never inside
+    the target, never at the config directory top level). The directory
+    itself is created 0o700. The file is created atomically with 0o600
+    via O_CREAT|O_EXCL so there is no umask window exposing raw model
+    text. The file is operator-owned: there is no auto-cleanup or
+    rotation in v1. On any write failure it returns None so the caller
+    can degrade to metadata-only without failing the assessment.
     """
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S-%fZ")
     digest = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()[:10]
@@ -497,9 +524,12 @@ def _quarantine_write(
     }
     data = json.dumps(envelope, indent=2, ensure_ascii=False).encode("utf-8")
     base = f"qg-quarantine-{stamp}-{digest}"
+    qdir = _ensure_quarantine_dir(working_dir)
+    if qdir is None:
+        return None
     for attempt in range(3):
         name = base if attempt == 0 else f"{base}-{attempt}"
-        path = working_dir / f"{name}.json"
+        path = qdir / f"{name}.json"
         try:
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         except FileExistsError:

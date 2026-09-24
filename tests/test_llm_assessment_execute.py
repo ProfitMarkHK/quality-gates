@@ -647,6 +647,7 @@ class ExecuteAssessmentTests(unittest.TestCase):
                 self.assertEqual(completed.returncode, 2)
                 self.assertIn("inside target", completed.stderr)
                 self.assertEqual(list(root.glob("qg-quarantine-*.json")), [])
+                self.assertEqual(list((root / "quarantine").glob("qg-quarantine-*.json")) if (root / "quarantine").exists() else [], [])
 
 
     def test_fenced_json_model_output_still_completes(self):
@@ -692,7 +693,8 @@ class QuarantineTests(unittest.TestCase):
 
     def test_execute_main_failed_output_exits_0_and_quarantines(self):
         # AC1: failing model output → exit 0, status failed, and a quarantine
-        # file appears in the operator working directory (never the target).
+        # file appears under quarantine/ in the operator working directory
+        # (never the target, never the config dir top level).
         import os
         import subprocess
         import sys
@@ -723,12 +725,47 @@ class QuarantineTests(unittest.TestCase):
             self.assertEqual(out["result"]["observations"], [])
             self.assertIn("not valid JSON", out["result"]["failure_reason"])
             self.assertEqual(out["result"]["deterministic_review"], deterministic)
-            quarantine = list(Path(workdir).glob("qg-quarantine-*.json"))
+            quarantine = list((Path(workdir) / "quarantine").glob("qg-quarantine-*.json"))
             self.assertEqual(len(quarantine), 1)
             self.assertEqual(Path(out["metadata"]["quarantine_path"]).resolve(), quarantine[0].resolve())
+            # AIDEV-544: config dir top level holds no quarantine files.
+            self.assertEqual(list(Path(workdir).glob("qg-quarantine-*.json")), [])
             envelope = json.loads(quarantine[0].read_text(encoding="utf-8"))
             self.assertEqual(envelope["raw_text"], "not json at all")
             self.assertIn("HUMAN REVIEW ONLY", envelope["header"])
+
+    def test_quarantine_goes_to_subdir_not_config_top_level(self):
+        # AIDEV-544 AC1/AC2: working dir is an operator config dir holding
+        # a `.env`; failing output lands under quarantine/ with 0600 via
+        # atomic exclusive create, envelope intact, top level stays clean.
+        import os
+        import tempfile
+
+        deterministic = {"gate_states": {"1": "applies"}}
+        raw_model_text = "not json at all {{"
+        gateway_body = {"choices": [{"message": {"content": raw_model_text}}]}
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as workdir, \
+                FakeGateway([(200, gateway_body, {}, 0)]) as gateway:
+            Path(workdir, ".env").write_text(
+                "QUALITY_GATES_LLM_ENABLED=1\n", encoding="utf-8"
+            )
+            config = _base_config(gateway.url)
+            package, material_ids = _package(tmpdir, deterministic)
+            result, metadata = execute_assessment(
+                package, deterministic, material_ids, config,
+                auth_headers={}, _counter=FAST_COUNTER,
+                _working_dir=Path(workdir),
+            )
+            self.assertEqual(result["status"], "failed")
+            quarantine = list((Path(workdir) / "quarantine").glob("qg-quarantine-*.json"))
+            self.assertEqual(len(quarantine), 1)
+            self.assertEqual(metadata["quarantine_path"], str(quarantine[0]))
+            self.assertEqual(list(Path(workdir).glob("qg-quarantine-*.json")), [])
+            self.assertEqual(os.stat(quarantine[0]).st_mode & 0o777, 0o600)
+            self.assertEqual((Path(workdir) / "quarantine").stat().st_mode & 0o777, 0o700)
+            envelope = json.loads(quarantine[0].read_text(encoding="utf-8"))
+            self.assertIn("HUMAN REVIEW ONLY", envelope["header"])
+            self.assertEqual(envelope["raw_text"], raw_model_text)
 
     def test_malformed_model_json_writes_quarantine_file(self):
         # AC1: failing model output keeps the exact raw text + header in a
@@ -756,7 +793,7 @@ class QuarantineTests(unittest.TestCase):
             self.assertEqual(result["failure_reason"], "model output was not valid JSON")
             self.assertEqual(result["deterministic_review"], deterministic)
             self.assertEqual(target_before, target_after)
-            quarantine = list(Path(workdir).glob("qg-quarantine-*.json"))
+            quarantine = list((Path(workdir) / "quarantine").glob("qg-quarantine-*.json"))
             self.assertEqual(len(quarantine), 1)
             path = quarantine[0]
             self.assertEqual(metadata["quarantine_path"], str(path))
@@ -796,7 +833,7 @@ class QuarantineTests(unittest.TestCase):
             self.assertEqual(result["deterministic_review"], deterministic)
             self.assertEqual(metadata["violation_rule"], "observation_unknown_material")
             self.assertEqual(metadata["violation_observation_id"], "unknown-framework")
-            quarantine = list(Path(workdir).glob("qg-quarantine-*.json"))
+            quarantine = list((Path(workdir) / "quarantine").glob("qg-quarantine-*.json"))
             self.assertEqual(len(quarantine), 1)
             path = quarantine[0]
             self.assertEqual(metadata["quarantine_path"], str(path))
@@ -823,7 +860,7 @@ class QuarantineTests(unittest.TestCase):
             )
             self.assertEqual(result["status"], "unavailable")
             self.assertIsNone(metadata["quarantine_path"])
-            self.assertEqual(list(Path(workdir).glob("qg-quarantine-*.json")), [])
+            self.assertEqual(list((Path(workdir) / "quarantine").glob("qg-quarantine-*.json")), [])
 
     def test_disabled_gateway_writes_no_quarantine_file(self):
         # AC3: disabled gateway → unavailable, no file.
@@ -839,7 +876,7 @@ class QuarantineTests(unittest.TestCase):
             )
             self.assertEqual(result["status"], "unavailable")
             self.assertIsNone(metadata["quarantine_path"])
-            self.assertEqual(list(Path(workdir).glob("qg-quarantine-*.json")), [])
+            self.assertEqual(list((Path(workdir) / "quarantine").glob("qg-quarantine-*.json")), [])
 
     def test_no_usable_model_text_writes_no_quarantine_file(self):
         # A failure path with no model text to retain records metadata only.
@@ -859,7 +896,7 @@ class QuarantineTests(unittest.TestCase):
             self.assertEqual(result["status"], "failed")
             self.assertIn("no usable text", result["failure_reason"])
             self.assertIsNone(metadata["quarantine_path"])
-            self.assertEqual(list(Path(workdir).glob("qg-quarantine-*.json")), [])
+            self.assertEqual(list((Path(workdir) / "quarantine").glob("qg-quarantine-*.json")), [])
 
     def test_quarantine_stderr_uses_fixed_wording(self):
         # The quarantine path is printed on stderr with the exact fixed wording.
@@ -881,7 +918,7 @@ class QuarantineTests(unittest.TestCase):
                     auth_headers={}, _counter=FAST_COUNTER,
                     _working_dir=Path(workdir),
                 )
-            quarantine = list(Path(workdir).glob("qg-quarantine-*.json"))
+            quarantine = list((Path(workdir) / "quarantine").glob("qg-quarantine-*.json"))
             self.assertEqual(len(quarantine), 1)
             expected = (
                 f"quality-gates: quarantined failed assessment to {quarantine[0]} "
@@ -910,7 +947,7 @@ class QuarantineTests(unittest.TestCase):
                 )
             finally:
                 os.umask(old_umask)
-            quarantine = list(Path(workdir).glob("qg-quarantine-*.json"))
+            quarantine = list((Path(workdir) / "quarantine").glob("qg-quarantine-*.json"))
             self.assertEqual(len(quarantine), 1)
             self.assertEqual(quarantine[0].stat().st_mode & 0o777, 0o600)
 
@@ -1141,7 +1178,7 @@ class RepairRetryTests(unittest.TestCase):
             self.assertEqual(metadata["violation_rule"], "observation_unknown_material")
             self.assertEqual(metadata["violation_observation_id"], "unknown-framework")
             # one quarantine file (only the first attempt violated)
-            self.assertEqual(len(list(Path(workdir).glob("qg-quarantine-*.json"))), 1)
+            self.assertEqual(len(list((Path(workdir) / "quarantine").glob("qg-quarantine-*.json"))), 1)
             # the repair payload reuses the identical serialized package + one
             # appended operator message quoting the violation
             repair_payload = json.loads(gateway.requests[1]["body"].decode())
@@ -1211,7 +1248,7 @@ class RepairRetryTests(unittest.TestCase):
             # latest (repair) violation wins in metadata
             self.assertEqual(metadata["violation_rule"], "observation_statement")
             self.assertEqual(metadata["violation_observation_id"], "unknown-framework")
-            quarantine = list(Path(workdir).glob("qg-quarantine-*.json"))
+            quarantine = list((Path(workdir) / "quarantine").glob("qg-quarantine-*.json"))
             self.assertEqual(len(quarantine), 2)
         self.assertIn("contract", result["failure_reason"].lower())
 
@@ -1266,7 +1303,7 @@ class RepairRetryTests(unittest.TestCase):
             self.assertEqual(metadata["attempt_count"], 1)
             self.assertEqual(metadata["repair_attempts"], 0)
             # exactly one call: the violating attempt; no repair issued
-            self.assertEqual(list(Path(workdir).glob("qg-quarantine-*.json")), [])
+            self.assertEqual(list((Path(workdir) / "quarantine").glob("qg-quarantine-*.json")), [])
 
     def test_transient_on_repair_call_is_not_retried(self):
         # The repair is a single shot: a transient HTTP error on it yields failed
@@ -1304,7 +1341,7 @@ class RepairRetryTests(unittest.TestCase):
                 self.assertEqual(result["status"], "failed")
                 self.assertEqual(metadata["attempt_count"], 2)
                 self.assertEqual(metadata["repair_attempts"], 1)
-                quarantine = list(Path(workdir).glob("qg-quarantine-*.json"))
+                quarantine = list((Path(workdir) / "quarantine").glob("qg-quarantine-*.json"))
                 self.assertEqual(len(quarantine), 1)
                 self.assertEqual(
                     Path(metadata["quarantine_path"]).resolve(), quarantine[0].resolve()
