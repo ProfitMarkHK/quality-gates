@@ -36,6 +36,11 @@ records every file or symlink. The only additional filter is the operator-only
 `.gitignore` or `.git/info/exclude`): matching paths are replaced with
 `{kind: excluded, readable: false, reason: excluded by operator config ...}`
 placeholders so `material_id` stays stable and result references still validate.
+A directory subtree that is provably fully excluded collapses to one placeholder
+for the directory (`collapsed: true`): only a trailing-slash pattern covering
+the directory (prefix equals the directory or an ancestor) or a `**/NAME/**`
+pattern naming its basename literally may prune; every other pattern descends
+as usual, so nothing real is ever dropped.
 
 1. **Assessment contract** — the fixed instruction above, outside the
    repository-material delimiters.
@@ -196,7 +201,8 @@ also matches top level, trailing `/` matches everything under that directory,
 bare names match by basename at any depth; posix `/` only; absolute, `..`,
 control-character, `.`, and backslash patterns fail config validation;
 matching material becomes an `excluded` placeholder, never a
-silent drop; all-excluded packages emit a stderr warning plus
+silent drop (a provably fully-excluded directory collapses to one placeholder
+with `collapsed: true` instead of one per file); all-excluded packages emit a stderr warning plus
 excluded/total counts in metadata). Run both CLIs from a config directory
 outside the target: a `.env` resolving inside the target is refused.
 
