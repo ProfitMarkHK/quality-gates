@@ -1,15 +1,15 @@
 # PSScriptAnalyzer is not optional when PowerShell source exists
 
-When the project contains `.ps1`, `.psm1`, or `.psd1` files, the linter gate uses `PSScriptAnalyzer` via `Invoke-ScriptAnalyzer`. Parser validation or syntax checking does not satisfy the linter gate — they are not substitutes. If `PSScriptAnalyzer` is not available, the linter gate is marked as a gap and the project is flagged with a strong recommendation to install it; it is not treated as a no-op.
+When a project contains `.ps1`, `.psm1`, or `.psd1` files, run the linter gate with `PSScriptAnalyzer` through `Invoke-ScriptAnalyzer`. Parser validation and syntax checking do not replace linting. If `PSScriptAnalyzer` is unavailable, mark the gate as a gap and recommend installing it. Do not mark it as a no-op.
 
-**Considered Options:**
+## Considered options
 
-- `PSScriptAnalyzer` — strongly recommended; catches script logic issues, unused variables, and style violations that parser validation misses entirely
-- Parser or syntax validation only — insufficient; confirms the script is syntactically valid but says nothing about script quality, cmdlet usage, or security anti-patterns
-- No linting — not acceptable; style and quality drift compound silently without a linter
+- `PSScriptAnalyzer` is strongly recommended. It catches script logic issues, unused variables, and style violations that parser validation misses.
+- Parser or syntax validation alone is insufficient. It confirms syntax but says nothing about script quality, cmdlet usage, or security anti-patterns.
+- Omitting linting is not acceptable. Style and quality problems accumulate without a linter.
 
-**Consequences:**
+## Consequences
 
 - The gate is marked as a gap with a clear recommendation to install `PSScriptAnalyzer`; the gate does not hard-fail when the tool is absent
 - The exact `Invoke-ScriptAnalyzer` invocation and the settings file used must be recorded in the checklist
-- The policy cannot be relaxed to "parser validation suffices" — that would silently downgrade the gate to a no-op for quality
+- Do not relax the policy to "parser validation suffices". That would turn the quality gate into a no-op.

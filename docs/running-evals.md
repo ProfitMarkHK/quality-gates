@@ -9,10 +9,11 @@ suite without guessing. It covers setup, execution, and output interpretation.
 
 The evals are **behavioural** tests. They verify that the quality-gates skill
 produces the right files with the right content, not that the skill parses or
-packages cleanly. Structural checks are separate — see
+packages cleanly. Structural checks are separate. See
 `docs/deployment-readiness.md` items 1 and 8.
 
-There are five evals:
+The eval suite contains eight scenarios. Evals 0 through 4 use project fixtures.
+Evals 5 through 7 test the optional LLM assessment.
 
 | ID | Name | What it tests |
 |----|------|---------------|
@@ -21,6 +22,9 @@ There are five evals:
 | 2 | `bash-no-tests-gap-and-noops` | Identifies missing tests as a gap, not a no-op |
 | 3 | `c-lang-clean-linter-and-spec-alignment` | Prefers Clean over clang-tidy for C; checks spec alignment |
 | 4 | `idempotent-rerun-no-duplicate-fence` | Running the skill twice produces one block, not two |
+| 5 | `llm-unknown-technology-advisory` | Reports unknown technology with a source-backed advisory |
+| 6 | `llm-repository-injection-boundary` | Treats instruction-like repository text as untrusted data |
+| 7 | `llm-unavailable-is-non-blocking` | Completes deterministic review when LLM assessment is unavailable |
 
 ---
 
@@ -28,7 +32,7 @@ There are five evals:
 
 ### skill-creator
 
-The evals are run through the **skill-creator** skill — the harness that feeds
+The evals are run through the **skill-creator** skill. It feeds
 prompts to an agent, captures the output, and compares it against the
 expectations in `evals.json`.
 
@@ -66,7 +70,7 @@ skill/quality-gates/evals/backup-scripts/
 skill/quality-gates/evals/jsonparser/
 ```
 
-> Note: The empty `eval-0` through `eval-4` folders at the repo root are
+> Note. The empty `eval-0` through `eval-4` folders at the repo root are
 > optional working directories from past runs. They are not required and can be
 > ignored or removed. The canonical eval output lives inside
 > `skill-creator`'s own session working directory.
@@ -75,21 +79,21 @@ skill/quality-gates/evals/jsonparser/
 
 ## Running the evals
 
-### Step 1 — Open a session in this repo
+### Step 1. Open an agent session in this repo
 
-The evals require an interactive agent session. Structural checks
-(`validate_skill.py`, `package_skill.py`) do not need this — behavioural checks
+The evals require an interactive agent session with the skill loaded. Structural checks
+(`validate_skill.py`, `package_skill.py`) do not need this. Behavioural checks
 do.
 
-### Step 2 — Activate the quality-gates skill
+### Step 2. Activate the quality-gates skill
 
 Load the skill so the agent has access to the gate catalog, the detection
 script, and the templates.
 
-### Step 3 — Ask the agent to use skill-creator
+### Step 3. Ask the agent to use skill-creator
 
 Prompt the agent to use skill-creator to run the prompts in `evals.json`. The
-exact prompt is not prescribed — something like:
+exact prompt is not prescribed. For example:
 
 ```
 Use the skill-creator skill to run the evals in
@@ -98,21 +102,20 @@ skill/quality-gates/evals/evals.json against the quality-gates skill
 show me a comparison of the output.
 ```
 
-### Step 4 — Review the results
+### Step 4. Review the results
 
 skill-creator can generate a comparison page showing:
 
 - Which files each run created or changed
 - A pass-rate benchmark against the expectations in `evals.json`
 
-Read the actual output files, not just the summary. Subtle problems surface
-there — for example, a gate catalog example leaking into a project of a language
-that does not use that gate.
+Read the actual output files, not just the summary. A gate catalog example can
+leak into a project that does not use that gate.
 
-### Step 5 — Record the result
+### Step 5. Record the result
 
-After running, update the result table in `docs/deployment-readiness.md` item 3
-with the pass counts for this run. Use the format:
+After running, add the pass counts and any limitations to the eval results
+section of `docs/deployment-readiness.md`:
 
 ```
 Iteration N result: eval-0 (X/Y) + eval-1 (X/Y) + eval-2 (X/Y) + eval-3 (X/Y) + eval-4 (X/Y) = Z/Z = pass%
@@ -139,7 +142,7 @@ validate the skill's behaviour before packaging or sharing.
 ### Evals appear to pass but CLAUDE.md content was overwritten
 
 Eval 0 and eval 4 specifically assert that pre-existing `CLAUDE.md` content is
-preserved. Read the output file directly and check for this — do not rely on
+preserved. Read the output file directly and check for this. Do not rely on
 the skill's summary output alone.
 
 ### Gate catalog example leaked into a project of the wrong language

@@ -31,9 +31,9 @@ class LlmAssessmentContractTests(unittest.TestCase):
         cls.evals = json.loads(EVALS.read_text(encoding="utf-8"))
 
     def test_skill_runs_advisory_assessment_after_deterministic_review(self):
-        detection = self.skill_text.index("### Phase 1 \u2014 Detect")
-        assessment = self.skill_text.index("### Phase 1.5 \u2014 Run the optional LLM assessment")
-        mapping = self.skill_text.index("### Phase 2 \u2014 Map")
+        detection = self.skill_text.index("### Phase 1. Detect")
+        assessment = self.skill_text.index("### Phase 1.5. Run the optional LLM assessment")
+        mapping = self.skill_text.index("### Phase 2. Map")
         skill_text = " ".join(self.skill_text.split())
 
         self.assertLess(detection, assessment)

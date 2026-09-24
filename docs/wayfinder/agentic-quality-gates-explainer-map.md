@@ -28,22 +28,22 @@ scope ends.
 
 <!-- Closed tickets are added here as links with a one-line gist. -->
 
-- [Verify the quality-gates skill's deck claims](tickets/verify-quality-gates-deck-claims.md) —
+- [Verify the quality-gates skill's deck claims](tickets/verify-quality-gates-deck-claims.md).
   The skill detects repository evidence, records each gate as applies, no-op,
   or gap, writes the checklist and managed instruction blocks, and does not
   install or prove local availability of security tools.
-- [Choose Markdown deck authoring and rendering](tickets/choose-markdown-deck-authoring.md) —
+- [Choose Markdown deck authoring and rendering](tickets/choose-markdown-deck-authoring.md).
   Use the installed Pandoc to export Markdown source to a local PowerPoint
   file. Do not add a Node dependency, remote presentation assets, or generated
   output to the repository.
-- [Define the deck learning arc](tickets/define-deck-learning-arc.md) —
+- [Define the deck learning arc](tickets/define-deck-learning-arc.md).
   Lead a self-guided audience from an agent's unsupported completion claim to
   visible evidence, then a fictional, language-neutral project walkthrough and
   the next action.
-- [Define the security-tooling roadmap message](tickets/define-security-tooling-roadmap-message.md) —
+- [Define the security-tooling roadmap message](tickets/define-security-tooling-roadmap-message.md).
   Show current detection and gap reporting beside a future, project-owner
   approved bootstrap path; never present the latter as current behaviour.
-- [Prototype the deck information architecture](tickets/prototype-deck-information-architecture.md) —
+- [Prototype the deck information architecture](tickets/prototype-deck-information-architecture.md).
   Use the selected Evidence rail structure: eight slides that each add a clear
   piece of evidence to the agent's completion claim.
 ## Not yet specified

@@ -1,8 +1,8 @@
-# Quality gates — {{PROJECT_NAME}}
+# Quality gates for {{PROJECT_NAME}}
 
 The single source of truth for what **done-done** means in this project. Any
 team member should be able to run these checks and know the answer. Keep this
-file in sync with the tooling — an out-of-date checklist is a bug.
+file in sync with the tooling. An out-of-date checklist is a bug.
 
 ## Run everything
 
@@ -18,7 +18,7 @@ tool prerequisite or module installation, minimum version if relevant, any
 intentional rule exclusions, and whether missing tooling fails closed. Syntax or
 parser checks do not replace linting. Gate 3 includes the complexity budget:
 strict max cyclomatic complexity 10 per function/method, tests excluded, no
-grandfathering — record its exact command alongside the linter (e.g. Python:
+grandfathering. Record its exact command alongside the linter (e.g. Python:
 `ruff check --select C901` with `mccabe-complexity = 10` scoped to source,
 plus `xenon --max-absolute B --max-modules B --max-average B` where the
 project adopts the strict companion).
@@ -38,10 +38,10 @@ project adopts the strict companion).
 | 9 | Change reviewed | {{STATE}} | manual |
 | 10 | Tracker / ticket reconciled | {{STATE}} | manual |
 | 11 | Implementation aligns with functional & technical specs | {{STATE}} | manual review vs {{SPEC_LOCATION}} |
-| 12 | Agent Skill structure validates | {{STATE}} | `npx --yes skills-ref validate <skill-directory>` for each detected skill |
+| 12 | Agent skill structure validates | {{STATE}} | `npx --yes skills-ref validate <skill-directory>` for each detected skill |
 
-State legend: **applies** (must pass), **no-op** (does not apply — reason
-given), **gap** (should apply but not yet possible — tracked as work).
+State legend: **applies** (must pass), **no-op** (does not apply, reason
+given), **gap** (should apply but not yet possible, tracked as work).
 
 ## No-ops and gaps
 

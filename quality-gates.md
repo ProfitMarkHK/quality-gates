@@ -1,10 +1,10 @@
-# Quality Gates — Guidance
+# Quality gates guidance
 
-Quality gates are checks that run before a task is considered **done** — the point
-after which it is safe to merge, ship, or close. A gate is only useful if its
+Quality gates are checks that run before a task is considered done. Done means it
+is safe to merge, ship, or close. A gate is only useful if its
 result is unambiguous: either it passes or it does not.
 
-## The Done-Done Question
+## The done-done question
 
 Before defining gates, ask: *what does done mean for this project?* A task that
 passes its gates may still need review, but it must not be blocked waiting for
@@ -33,10 +33,10 @@ availability never blocks deterministic review completion.
 ### 1. All tests pass
 
 All available tests pass without error. "Tests" means the full suite available in
-the project — unit, integration, smoke, E2E, property-based, or whatever applies.
+the project: unit, integration, smoke, E2E, property-based, or whatever applies.
 
-If the existing test suite is insufficient — coverage gaps, missing scenarios,
-confidence below what the software requires — new tests must be proposed,
+If the existing test suite is insufficient, with coverage gaps, missing scenarios,
+or confidence below what the software requires, new tests must be proposed,
 implemented, and then passed before the task is done. Tests that exist but are
 not run do not count.
 
@@ -49,7 +49,7 @@ work together and that the behaviour delivered matches what was asked for.
 ### 3. All linters and static analysers pass
 
 All applicable linters, formatters, and static analysers pass without errors or
-warnings. This is a standalone gate — a lint failure blocks done-done regardless
+warnings. This is a standalone gate. A lint failure blocks done-done regardless
 of whether tests pass.
 
 The set of linters depends on the project. Common examples:
@@ -70,20 +70,20 @@ settings file and record the exact `Invoke-ScriptAnalyzer` command. If
 `PSScriptAnalyzer` is unavailable, mark the gate as a gap and strongly recommend
 installing it; do not silently treat it as a no-op or fail the runner closed.
 
-**Complexity budget — part of this gate.** Every function/method must have a
-cyclomatic complexity of **10 or less — strict, no grandfathering.** Existing
+**Complexity budget. Part of this gate.** Every function/method must have a
+cyclomatic complexity of **10 or less. Strict, no grandfathering.** Existing
 violations are fixed, not baselined. Test files are **excluded** from the
-budget. Python projects enforce with `ruff check --select C901`
-(`mccabe-complexity = 10`) scoped to source — the canonical measure — plus,
-where adopted, strict
-`xenon --max-absolute B --max-modules B --max-average B` (xenon grades the
-same code harder than ruff, so it is an opt-in companion, not the default
-reading of "10");
-other languages use their detected equivalent (`eslint` `complexity` 10,
+budget. Python projects enforce it with `ruff check --select C901` and
+`mccabe-complexity = 10`, scoped to source. Ruff C901 defines the canonical
+measure. Projects may also run strict
+`xenon --max-absolute B --max-modules B --max-average B`. Xenon grades the
+same code higher than ruff, so it is an optional companion. Do not use it as the
+default interpretation of "10". Other languages use their detected equivalent
+(`eslint` `complexity` 10,
 `gocyclo -over 10`, `lizard -C 10`). When the budget is violated, split the
-function — do not raise the threshold to force a pass.
+function. Do not raise the threshold to force a pass.
 
-If no linter applies, this gate is a no-op — but it must be stated as such,
+If no linter applies, this gate is a no-op, but state it explicitly,
 not silently skipped.
 
 ### 4. New code is covered by non-trivial tests
@@ -98,7 +98,7 @@ behaviour rather than just surface-level correctness.
 - Are independent of implementation detail where appropriate (behaviour, not
   just structure)
 
-**Trivial tests are not sufficient** — a test that asserts only that a function
+**Trivial tests are not sufficient.** A test that asserts only that a function
 returns without error, or that a log line contains a string, does not meet this
 threshold.
 
@@ -111,7 +111,7 @@ Documentation is kept in sync with the changes made. This includes:
 - Agent instruction files (AGENTS.md, copilot-instructions.md, skill docs)
 - Decision records, ADRs, or runbooks for significant architectural choices
 
-Documentation that is out of sync with the code is treated as a bug — it is not
+Documentation that is out of sync with the code is treated as a bug. It is not
 acceptable to leave it stale and move on.
 
 ### 6. Type checking passes *(if applicable)*
@@ -127,7 +127,7 @@ projects without one, state this gate as a no-op.
 
 ### 8. Security and secrets checks pass *(if applicable)*
 
-Relevant security scans pass — for example:
+Relevant security scans pass. For example:
 
 - No hardcoded credentials, API keys, or secrets in the codebase
 - No dependency vulnerabilities at or above a defined severity threshold
@@ -139,7 +139,7 @@ Relevant security scans pass — for example:
 ### 9. The change has been reviewed *(if applicable)*
 
 Code changes have been reviewed by an appropriate reviewer. Peer review is not
-automated and cannot be a gate that always passes — if the process requires a
+automated and cannot be a gate that always passes. If the process requires a
 review, the task is not done until one has been obtained.
 
 ### 10. Associated Jira tickets match project reality *(if applicable)*
@@ -161,17 +161,17 @@ before the task is done:
   or changed, without an agreed change to the specification itself.
 - The implementation adds no undocumented behaviour that conflicts with the
   specification.
-- Where the code and the specification disagree, the discrepancy is resolved —
-  either the code is corrected, or the specification is updated through the
+- Where the code and the specification disagree, resolve the discrepancy.
+  Correct the code or update the specification through the
   agreed change process. An out-of-date specification is treated like out-of-date
   documentation: a bug.
 
 This gate depends on human or reviewer judgement, so it cannot be a check that
 always passes. If no functional or technical specification exists, state this as
-a no-op — and consider whether the absence of a specification is itself a gap to
+a no-op. Also consider whether the absence of a specification is itself a gap to
 address for a change of this size.
 
-### 12. Agent Skill structure validates *(if applicable)*
+### 12. Agent skill structure validates *(if applicable)*
 
 Projects containing one or more Agent Skills validate every directory containing
 `SKILL.md` against the Agent Skills structure and frontmatter contract. Run:
@@ -188,7 +188,7 @@ missing prerequisite.
 
 ---
 
-## Project-Specific Considerations
+## Project-specific considerations
 
 ### Projects with no build phase
 
@@ -199,7 +199,7 @@ not mistaken for an oversight.
 ### Projects with no test phase
 
 If a project has no tests at all, this is a gap to address before the work is
-done — not a reason to skip the gate. A project with no tests cannot demonstrate
+done. It is not a reason to skip the gate. A project with no tests cannot demonstrate
 correctness; one must be started.
 
 ### Projects with no linter
@@ -232,8 +232,8 @@ make check          # or: ./scripts/check.sh
 
 The gate runner should produce clear output and exit non-zero on any automated
 failure, so that it can be used in pre-commit hooks and merge automation. Some
-gates — such as test quality, documentation, review, ticket reconciliation, and
-specification alignment — require human judgement and remain checklist items,
+gates, such as test quality, documentation, review, ticket reconciliation, and
+specification alignment, require human judgement and remain checklist items,
 not runner commands.
 
 If a gate cannot be automated, state this explicitly and document the manual
@@ -242,7 +242,7 @@ an informal bypass.
 
 ---
 
-## When a Gate Fails
+## When a gate fails
 
 When a quality gate fails:
 
@@ -250,17 +250,17 @@ When a quality gate fails:
    warning, or skip the documentation check to make the gate pass.
 2. **Diagnose the failure first.** Read the output; run the failing command
    locally to confirm.
-3. **Fix all failures in the same session** where practical — a partial fix
+3. **Fix all failures in the same session** where practical. A partial fix
    that makes the gate pass temporarily while leaving real problems is not done.
 4. **Re-run the gate** to confirm all criteria are green before closing the
    task.
 
 ---
 
-## Defining Your Project's Gates
+## Defining your project's gates
 
 Every project should document its own gate checklist in a project-specific
-document. This generic document is the foundation — tailor it:
+document. This generic document is the foundation. Tailor it:
 
 - Add project-specific linters and analysers
 - Remove gates that are no-ops for your project

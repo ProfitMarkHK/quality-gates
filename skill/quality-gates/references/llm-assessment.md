@@ -18,11 +18,11 @@ available evidence is ambiguous.
    mapping. Its observations can identify what a human should verify, but they
    cannot decide a gate state.
 
-The fixed assessment instruction is: inspect the supplied target-project
-material for technology that is both absent from the deterministic review
-and gate-relevant — a language, framework, or tool the detector did not name
-where it changes gate mapping, or auth/secret handling, custom build/test/
-security tooling, or vendored code a human must verify. Do not report the
+The fixed assessment instruction is to inspect the supplied target-project
+material for technology that is both absent from the deterministic review and
+gate-relevant. Examples include an unrecognised language,
+framework, or tool; auth or secret handling; custom build, test, or security
+tooling; and vendored code a human must verify. Do not report the
 detected language's standard library, third-party dependencies used at their
 manifest-pinned versions, or generic HTTP, serialization, test-runner, or
 build/packaging libraries unless custom-configured in a gate-relevant way.
@@ -49,11 +49,11 @@ the directory (prefix equals the directory or an ancestor) or a `**/NAME/**`
 pattern naming its basename literally may prune; every other pattern descends
 as usual, so nothing real is ever dropped.
 
-1. **Assessment contract** — the fixed instruction above, outside the
+1. **Assessment contract.** The fixed instruction above, outside the
    repository-material delimiters.
-2. **Deterministic review** — the detector report and any direct verification,
+2. **Deterministic review.** The detector report and any direct verification,
    copied verbatim and labelled as authoritative evidence.
-3. **Target-project material** — every material item, each with a stable
+3. **Target-project material.** Every material item, each with a stable
    `material_id` equal to its repository-relative path, media or text type,
    readability status, and content or supported representation. Do not silently
    omit an item because its language or file type is unfamiliar.
@@ -152,7 +152,7 @@ Request policy: OpenAI-compatible chat completions by default,
 Anthropic-compatible messages as the explicitly configured alternative;
 deterministic settings (temperature 0, no tools, no function calling,
 JSON-only response); total deadline 60s by default; at most one retry for
-transient rate-limit or server errors — authentication, configuration,
+transient rate-limit or server errors. Authentication, configuration,
 validation, malformed-response, and timeout errors are never retried.
 Missing or disabled configuration is `unavailable`; unreachable capability
 is `unavailable`; deadline expiry is `timed_out`; malformed or
@@ -176,7 +176,7 @@ model output; with unparsable output the summary keys are null. Quarantine
 files are human-only:
 nothing auto-loads them and nothing feeds them back into agent context or
 gate decisions. The display-only `scripts/quarantine_read.py` renders any
-envelope — old or new — as a triage summary without dumping the echo bulk.
+envelope, old or new, as a triage summary without dumping the echo bulk.
 
 One bounded repair retry follows a validation failure: the identical package
 plus one appended fixed operator message quoting the violating rule and
@@ -186,7 +186,7 @@ line (120 characters) before it is quoted, so arbitrary model text cannot
 steer the repair.
 
 Result metadata carries `quarantine_path`, `violation_observation_id`,
-`violation_rule`, and `repair_attempts` — never raw model text. An expired
+`violation_rule`, and `repair_attempts`. Never include raw model text. An expired
 deadline returns `timed_out` without quarantining. Always run from a working
 directory outside the target; a directory inside the target is refused.
 
@@ -206,7 +206,7 @@ quarantined raw output before acting on it.
 
 ## Configuration
 
-Operator configuration only — never from target-project content. Process
+Read operator configuration only, never target-project content. Process
 environment wins over an optional local `.env` in the invocation
 configuration directory (parsed as data, no shell execution); a missing
 `.env` is valid when required values are exported or the assessment is
@@ -238,7 +238,7 @@ with `collapsed: true` instead of one per file); all-excluded packages emit a st
 excluded/total counts in metadata). Run both CLIs from a config directory
 outside the target: a `.env` resolving inside the target is refused.
 
-## Developer notes — evaluation scenarios (skill authors only)
+## Developer notes. Evaluation scenarios (skill authors only)
 
 The development evals cover three invariants:
 

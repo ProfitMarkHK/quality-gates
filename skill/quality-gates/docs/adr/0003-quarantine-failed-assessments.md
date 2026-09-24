@@ -1,16 +1,16 @@
-# Fail-closed machine path with human-only quarantine and one bounded repair retry
+# Fail-closed handling for invalid assessments
 
-When model output violates the assessment contract, the machine path stays fail-closed — status `failed`, empty observations, deterministic review byte-identical — and the raw text is retained in a quarantine file under a `quarantine/` subdirectory of the operator working directory (never inside the target, never at the config directory top level) for human review only. On validation failure the seam makes exactly one additional gateway call with fixed operator wording quoting the violation; the transient-HTTP retry budget is unchanged.
+When model output violates the assessment contract, return status `failed`, no observations, and an unchanged deterministic review. Retain the raw text in a quarantine file under `quarantine/` in the operator's working directory. Never put it inside the target project or at the config directory's top level. Keep the file for human review only. On validation failure, make exactly one additional gateway call with fixed operator wording that quotes the violation. The transient HTTP retry budget does not change.
 
-**Considered Options:**
+## Considered options
 
-- Discard violating output, keep one-line reason — status quo; loses any sound signal the model contained, unrecoverable by a later agent
-- Auto-repair unbounded until valid — risks unpredictable latency and lets the model negotiate its own contract through repeated attempts
-- Quarantine plus exactly one bounded repair — chosen; preserves the signal for humans, keeps the machine path fail-closed, bounds latency
+- Discard invalid output and keep a one-line reason. This is the status quo, but it loses any useful signal in the model response.
+- Retry until the output is valid. This risks unpredictable latency and lets the model negotiate its contract through repeated attempts.
+- Quarantine the output and allow exactly one repair attempt. This preserves it for human review, keeps automated decisions fail-closed, and bounds latency. Chosen.
 
-**Consequences:**
+## Consequences
 
-- Quarantine files accumulate under `<working_dir>/quarantine/`; the operator owns retention, there is no auto-cleanup in v1
-- Quarantined content must never be auto-loaded into agent context or gate decisions — the header and stderr wording say so, and tests must assert the target tree is untouched
-- Metadata carries `quarantine_path`, `violation_observation_id`, `violation_rule`, and `repair_attempts`, never raw model text
-- An expired deadline at violation time returns `timed_out` without quarantining the in-hand text; retention applies to failed assessments, not timed-out ones
+- Quarantine files accumulate under `<working_dir>/quarantine/`. The operator handles retention. Version 1 does not clean them up automatically.
+- Never load quarantined content into agent context or gate decisions. The file header and stderr message state this. Tests must confirm that the target tree remains unchanged.
+- Metadata includes `quarantine_path`, `violation_observation_id`, `violation_rule`, and `repair_attempts`. It never includes raw model text.
+- If the deadline expires during validation, return `timed_out` without quarantining the current text. Retain failed assessments, not timed-out ones.

@@ -21,20 +21,20 @@ enforcement, and visible no-ops and gaps?
 
 The deck is self-guided and uses this eight-slide sequence:
 
-1. **An agent says "done"** — a completion claim without visible evidence.
-2. **Why agentic development changes the bar** — more delivery speed requires
-   a shared, repeatable finish line.
-3. **Definition of done to done-done** — an executable contract rather than a
+1. **An agent says "done."** The claim has no visible evidence.
+2. **Why agentic development changes the bar.** Higher delivery speed requires
+   a shared, repeatable completion standard.
+3. **Definition of done to done-done.** An executable contract replaces a
    memory aid.
-4. **How this project is structured** — guidance, skill, detector, catalog,
+4. **How this project is structured.** Guidance, skill, detector, catalog,
    templates, and enforced instruction blocks.
-5. **How the skill works** — detect, map, document, enforce, verify, and
+5. **How the skill works.** Detect, map, document, enforce, verify, and
    report.
-6. **The gate system** — all eleven gates grouped as correctness and delivery,
+6. **The gate system.** The eleven gates are grouped as correctness and delivery,
    engineering health, and safety and accountability.
-7. **A fictional service walkthrough** — visible applies, no-op, and gap
+7. **A fictional service walkthrough.** Show applies, no-op, and gap
    states without language-specific tools.
-8. **What the skill does now** — the current-scope boundary and the next
+8. **What the skill does now.** State the current-scope boundary and the next
    action: run the skill on the next project.
 
 The still-open security-roadmap ticket owns the final wording for slide 8's

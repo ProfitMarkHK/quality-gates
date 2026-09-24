@@ -1,8 +1,8 @@
 <!-- BEGIN QUALITY GATES (managed) -->
-## Definition of done — quality gates
+## Definition of done. Quality gates
 
 No task is **done-done** (safe to merge, ship, or close) until every applicable
-quality gate below passes. Gates catch regressions and omissions; they do not
+quality gate below passes. Gates catch regressions and omissions. They do not
 replace design or review judgement.
 
 Run all gates with one command before marking any unit of work complete:
@@ -11,10 +11,10 @@ Run all gates with one command before marking any unit of work complete:
 {{RUNNER_COMMAND}}
 ```
 
-The full, project-specific checklist — every gate, its exact command, and the
-gates that are no-ops or gaps for this project — lives in
-[`{{CHECKLIST_PATH}}`]({{CHECKLIST_PATH}}). Keep it current: out-of-sync
-documentation is treated as a bug.
+The full, project-specific checklist lives in
+[`{{CHECKLIST_PATH}}`]({{CHECKLIST_PATH}}). It names every gate, its exact command,
+and the gates that are no-ops or gaps for this project. Keep it current.
+Out-of-sync documentation is a bug.
 
 Rules when a gate fails:
 

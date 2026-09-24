@@ -1,15 +1,23 @@
 # Changelog
 
-All notable changes to the quality-gates skill are recorded here. Dates are
-when the work was done, not calendar releases — this project has not yet cut a
-tagged release (see `docs/deployment-readiness.md`).
+All notable changes to the quality-gates skill are recorded here. Dates show
+when the work was done, not calendar releases. This project has not yet cut a
+tagged release. See `docs/deployment-readiness.md`.
 
 ## Unreleased
+
+### Documentation prose cleanup
+
+- Rewrote project guidance, skill references, templates, and release notes to
+  use plainer prose and sentence-case headings.
+- Clarified that the quality-gates skill works with any coding agent. Claude
+  references remain where they describe a supported instruction-file convention
+  or record an actual historical eval run.
 
 ### Cyclomatic complexity budget as Gate 3b
 
 Gate 3 now includes a strict complexity budget: max cyclomatic complexity 10
-per function/method, tests excluded, no grandfathering — violations are fixed
+per function/method, tests excluded, no grandfathering. Fix violations
 by splitting the function, never by raising the threshold. Python enforces
 with `ruff check --select C901` (`mccabe-complexity = 10`) plus strict
 `xenon --max-absolute B --max-modules B --max-average A` scoped to source;
@@ -28,24 +36,24 @@ repo's own source, so every violation was fixed by splitting, not waived:
 build-CI / tool-evidence / complexity / runner / spec helpers;
 `llm_assessment_execute.py::execute_assessment` restructured into an
 `_AssessmentRun` phase class (prepare / fetch / settle / repair / loop
-methods — nested closures count toward the outer C901 score, so nesting
-alone could not fix it); `validate_result` split into head / observation /
+methods. Nested closures count toward the outer C901 score, so nesting
+alone could not fix it. `validate_result` was split into head / observation /
 reference / recommendation / tail validators; plus smaller splits in
 `build_input_package`, `build_redacted_preview`, `build_offending_items`,
 `parse_exclude_patterns`, `_quarantine_write`, `validate_skill.validate`,
 and `quarantine_read.summarize`. Root `pyproject.toml` wires the budget
-(`mccabe-complexity = 10`, tests/examples excluded) — the detector now
+(`mccabe-complexity = 10`, tests/examples excluded). The detector now
 reports `Complexity: ruff-C901` on this repo instead of the candidate gap.
 All unit tests pass with no behavior change. Still pending per this repo's
-own done-done: the eval-suite re-run in a Claude session (manual gate —
-cannot be waved through by a script).
+own done-done: rerun the eval suite in a Claude session. This is a manual gate
+and cannot be waved through by a script.
 
 Gate clarification (same session, recorded as a threshold correction with
 its reason): ruff C901 ≤10 is the canonical measure; xenon is an opt-in
 stricter companion, not a second reading of "10". Measured against this
 repo with xenon 0.9.3 (pipx install, system Python untouched): xenon
-grades the same code ~1–5 points higher per function — ruff green
-everywhere, xenon B failing 15 blocks with a B average — so the
+grades the same code about 1–5 points higher per function. Ruff passed
+everywhere, while xenon B failed 15 blocks with a B average. Therefore the
 `--max-average A` first written here was unenforceable fail-closed and is
 corrected to B. xenon-strict adoption is scheduled follow-up, itemized so
 it cannot rot into a silent gap: `contract.py` `_validate_advisory_text`,
@@ -57,7 +65,7 @@ it cannot rot into a silent gap: `contract.py` `_validate_advisory_text`,
 
 ### Soften advisory-text rule for descriptive configured plus hedges (AIDEV-548)
 
-The validator rejected benign descriptive prose — a live quarantine flagged
+The validator rejected benign descriptive prose. A live quarantine flagged
 an observation solely for "configured" in "configured via a hardcoded base
 URL". `_validate_advisory_text` no longer denylists "configured" (static
 config presence, verifiable from cited material; "installed"/"passing"
@@ -70,13 +78,21 @@ unchanged. See ADR 0005 for the accepted residual risk.
 
 ### Calibrate advisory observations to cut dependency noise (AIDEV-549)
 
-Live runs filled all 30 observation slots with one-per-dependency filler (each manifest dependency and standard-library module as a custom technology). The fixed assessment contract now requires gate-relevance (absent from the deterministic review AND changing gate mapping, or auth/secret handling, custom build/test/security tooling, vendored code), excludes by category (detected-language standard library, manifest-pinned versions, generic HTTP/serialization/test/build libs unless custom-configured), groups related items, caps at 8 with empty valid. Category-based so it transfers across stacks — no package blocklist.
+Live runs filled all 30 observation slots by reporting every manifest dependency
+and standard-library module as custom technology. The fixed assessment contract
+now requires gate relevance. It covers technology absent from the deterministic
+review that changes gate mapping, auth or secret handling, custom build, test, or
+security tooling, and vendored code. The contract excludes categories such as
+detected-language standard libraries, manifest-pinned versions, and generic
+HTTP, serialization, test, and build libraries unless custom configured. It
+groups related items and caps the result at eight observations. An empty result
+is valid. The rules use categories instead of a package blocklist.
 
 ### Self-describing quarantine envelopes plus a display-only reader (AIDEV-547)
 
 Quarantine files held the full model output as one escaped `raw_text`
-string with the violating rule but no locator — the deterministic-review
-echo bulk buried the one failing sentence. New envelopes carry summary
+string with the violating rule but no locator. The deterministic-review
+echo buried the one failing sentence in bulk output. New envelopes carry summary
 keys before `raw_text`: `echo` (byte size plus identical/not-identical
 verdict against the sent review), `offending` (the failing observation or
 uncertainties, redacted), and the persisted `redacted_preview`; `raw_text`
@@ -90,8 +106,8 @@ permissions, and atomic writes unchanged.
 `_validate_advisory_text` rejected any `;`, so the 2026-09-24 live run
 failed twice on benign clause punctuation and burned its single repair
 retry on unfixable wording. A semicolon now fails only when it cannot be
-prose punctuation (not followed by whitespace — the compact `cmd1;cmd2`
-shape); `&&`, `||`, pipes, substitutions, backticks, URLs, and the
+prose punctuation. It fails when no whitespace follows the semicolon, as in
+`cmd1;cmd2`. The `&&`, `||`, pipe, substitution, backtick, URL, and
 verb/target rules are unchanged, as is the preview neutralizer mapping.
 Spaced bare-word chains are treated as English clauses: they are lexically
 identical to ordinary punctuation and chains carrying real payloads still
@@ -103,8 +119,8 @@ test now passes against the gateway.
 ### Quarantine output under a dedicated subdirectory (AIDEV-544)
 
 Failing assessments were quarantined into the operator working directory,
-which in practice is the config directory holding the `.env` — data
-outputs accumulating alongside configuration. Quarantine files now default
+which in practice is the config directory holding the `.env`. This caused data
+outputs to accumulate alongside configuration. Quarantine files now default
 to a `quarantine/` subdirectory (created 0700) under the working directory:
 nothing new lands at the config top level. File guarantees are unchanged
 (0600 via atomic O_CREAT|O_EXCL, same human-review envelope), as are the
@@ -134,11 +150,12 @@ envelope caps, seam preview + quarantine + no-raw-leak).
 
 ### Collapse fully-excluded subtrees in the LLM assessment input (AIDEV-543)
 
-First live run against classification-agent fail-closed at 7MB vs a 200KB
-input cap: 5.98MB was 18,565 per-file `excluded` placeholders under
-`my_ai_brain/.venv`, while real content was 52 files / 934K chars (248K
-tokens, inside budget). `build_input_package` now prunes a directory without
-descent — emitting one `collapsed: true` placeholder — only when a
+The first live run against classification-agent failed closed. The input was
+7 MB, above the 200 KB cap. Of that, 5.98 MB came from 18,565 per-file
+`excluded` placeholders under `my_ai_brain/.venv`. The actual project content
+was 52 files and 934K characters, about 248K tokens, within the model budget.
+`build_input_package` now prunes a directory without
+descent and emits one `collapsed: true` placeholder only when a
 trailing-slash pattern covers it or a `**/NAME/**` pattern names its basename
 literally; file globs, bare names, and anchored patterns still descend.
 `references/llm-assessment.md` documents the collapse. Four new hermetic
@@ -147,11 +164,12 @@ real-material-set equality on a fake venv fixture.
 
 ### Harden `.env.example` exclusion patterns
 
-Field experience on a large target (18,619 materials, ~900MB venv): the old
-example missed nested caches (plain `.pytest_cache/**` does not match nested
-copies — the `**/` form is required), and had nothing for logs, secrets
-(`.env`, credential dirs — `.gitignore` is never consulted, and unexcluded
-binaries are base64-embedded into the package). The example now ships the
+Field experience on a large target with 18,619 materials and a roughly 900 MB
+virtual environment showed that the old example missed nested caches. A plain
+`.pytest_cache/**` pattern does not match nested copies. Use `**/` for that.
+The example also lacked patterns for logs, `.env` files, and credential
+directories. The scanner never reads `.gitignore`. It base64-encodes any
+unexcluded binaries into the package. The example now ships the
 31-pattern hardened set (lockfiles, venv, bytecode/caches, `data/`,
 logs/jsonl, `.DS_Store`, secrets, reports/coverage, media/archive/data
 binaries) with a comment explaining the `**/` and bare-basename rules.
@@ -267,22 +285,22 @@ smoke test (`tests/test_llm_assessment_live.py`, skipped unless
 
 ### Domain model and documentation
 
-- Added `CONTEXT.md` defining the core domain vocabulary — done-done, gate,
+- Added `CONTEXT.md` defining the core domain vocabulary: done-done, gate,
   applies/no-op/gap, evidence, runner, done-done block, and
-  agent-instruction file — so documents stop drifting.
+  agent-instruction file. This gives the docs consistent definitions.
 - Fixed runner definition in SKILL.md: Phase 3 now names the five manual gates
   (4, 5, 9, 10, 11) that do not belong in the runner, and Phase 4 clarifies
   that the done-done block covers them by reference.
-- Added `docs/adr/0001-clean-preferred-for-c-cpp.md` — ADRs for the two
+- Added `docs/adr/0001-clean-preferred-for-c-cpp.md`. ADRs for the two
   non-obvious linting policies encoded in the gate catalog.
-- Added `docs/adr/0002-psscriptanalyzer-not-optional.md` — PSScriptAnalyzer
+- Added `docs/adr/0002-psscriptanalyzer-not-optional.md`. PSScriptAnalyzer
   is a strong recommendation when PowerShell source exists; absent tooling is
   flagged as a gap, not a hard-fail, to avoid blocking projects that have not
   yet installed the module.
 
 ### Eval execution documentation
 
-- Added `docs/running-evals.md` — step-by-step guide for running the behavioural
+- Added `docs/running-evals.md`, a guide for running the behavioural
   eval suite: fixture extraction, skill-creator prerequisites, execution steps,
   output interpretation, and common failure modes.
 - Updated `docs/deployment-readiness.md` item 3 to point to the new guide and
@@ -301,7 +319,7 @@ smoke test (`tests/test_llm_assessment_live.py`, skipped unless
   `PSScriptAnalyzer` linting and that missing applicable tooling must be
   reported as a gap, not a hard-fail.
 
-## 2026-08-14 — planning
+## 2026-08-14. Planning
 
 - Added a local Wayfinder decision map for an internal explainer about
   agentic-development quality gates. The first resolved ticket records the
@@ -320,16 +338,16 @@ smoke test (`tests/test_llm_assessment_live.py`, skipped unless
 - Added the eight-slide, ASD-STE100 Markdown deck for the agentic-development
   quality-gates explainer.
 
-## 2026-08-13 — process decision
+## 2026-08-13. Process decision
 
 - Deployment-readiness item #6 (description trigger-accuracy eval) demoted
-  from **gap** to **deferred — not blocking**. The eval requires
+  from **gap** to **deferred, not blocking**. The eval requires
   skill-creator's description-optimization loop, which shells out to the
   Claude Code CLI (`claude -p`); this project deliberately avoids that
   dependency. The item stays tracked but never blocks a release or wide
   sharing. Revisit only if skill triggering proves unreliable in practice.
 
-## Iteration 2 — 2026-08-10
+## Iteration 2. 2026-08-10
 
 - Added gate 11, **specification alignment**: checks the implementation
   against available functional and technical specs (`docs/`, `spec/`, API
@@ -355,7 +373,7 @@ smoke test (`tests/test_llm_assessment_live.py`, skipped unless
   idempotency); the C-project baseline (no skill) passed 5/7, missing exactly
   the two assertions that check the `Clean` preference policy.
 
-## Iteration 1 — 2026-08-10
+## Iteration 1. 2026-08-10
 
 - Initial skill: `SKILL.md`, the gate catalog (10 gates at this point),
   agent-instruction-file conventions and idempotent-edit rules, the read-only
@@ -365,7 +383,7 @@ smoke test (`tests/test_llm_assessment_live.py`, skipped unless
   Bash-only repo with no tests and no instruction file (gap-flagging, no-op
   statements, creating an instruction file from scratch).
 - Results: with-skill runs passed 100% of assertions (19/19); baseline runs
-  (no skill) passed 52% (10/19) — the gap was consistently the same three
+  (no skill) passed 52% (10/19). The same three gaps appeared each time:
   behaviours: no single checklist document, no explicit no-op statements, and
   no single runner command.
 - Packaged as `quality-gates.skill` and delivered.

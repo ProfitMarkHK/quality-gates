@@ -6,16 +6,16 @@ any live session. That is safe but opaque: the operator cannot tell a benign
 `install instructions` rejection from a real exfiltration attempt without
 opening the quarantine file outside the session.
 
-**Considered Options:**
+## Considered options
 
-- Promote neutralized observations into the result as `partial` — rejected;
+- Promote neutralized observations into the result as `partial`. Rejected.
   vowel-masking is reversible obfuscation, the denylist misses real payloads
   (`rm -rf`, `curl | sh` passed validation), and promotion would move attack
   surface from a human-only file into agent context by design.
-- Keep `failed`/empty and add nothing — status quo; rejection volume stays
+- Keep `failed` with no observations and add nothing. This is the status quo. Rejection volume stays
   unexplained inside the session.
 - Fail-closed machine path plus a display-only neutralized preview in result
-  metadata — chosen; the machine result is unchanged, and the preview lets a
+  metadata. Chosen. The machine result is unchanged, and the preview lets a
   human understand the flagged content without ingesting trigger keywords,
   shell metacharacters, raw URLs, or command payloads.
 

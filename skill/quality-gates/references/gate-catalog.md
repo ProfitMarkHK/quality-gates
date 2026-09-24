@@ -1,28 +1,28 @@
 # Gate catalog
 
-This is the menu of quality gates to choose from. A gate is a check that must
-give an unambiguous result — it passes or it does not — before a task is
-**done-done** (safe to merge, ship, or close). Gates catch regressions and
+Use this catalog to choose quality gates for a project. Each gate must have an
+unambiguous result. It passes or it does not. A task is done-done only when
+every applicable gate passes, so it is safe to merge, ship, or close. Gates catch regressions and
 omissions; they do not replace good design or review judgement.
 
 For each gate, decide one of three states for the project in front of you, and
 record the reason:
 
-- **Applies** — the project has (or should have) this check. Name the exact
+- **Applies.** The project has, or should have, this check. Name the exact
   command.
-- **No-op** — the gate genuinely does not apply (e.g. no compile step in an
+- **No-op.** The gate genuinely does not apply (e.g. no compile step in an
   interpreted project). State this out loud. A silent skip looks like an
   oversight and erodes trust in the checklist.
-- **Gap** — the gate *should* apply but the project cannot satisfy it yet
+- **Gap.** The gate *should* apply but the project cannot satisfy it yet
   (e.g. no tests exist at all). A gap is work to schedule, not a reason to drop
   the gate. Flag it clearly.
 
-The point of stating no-ops and gaps is honesty: a reader must be able to tell
-the difference between "checked and not needed" and "forgotten".
+State no-ops and gaps so readers can tell "checked and not needed" from
+"forgotten".
 
 **A note on the examples below.** Every tool name, command, and file path in
 this catalog (`ruff`, `shellcheck`, `docs/functional-spec.md`, and so on) is an
-illustration of what a gate can look like — not a template to copy in. Before a
+illustration of what a gate can look like. It is not a template to copy in. Before a
 tool or path goes into the project's checklist or into an agent-instruction
 file, it must come from what Phase 1's detection actually found in *this*
 project, not from whichever example happened to be nearby in this document. If
@@ -36,7 +36,7 @@ tool and path traces to real evidence from that specific project.
 
 ## 1. All tests pass
 
-The full test suite available in the project runs without error — unit,
+The full test suite available in the project runs without error. This includes unit,
 integration, smoke, end-to-end, property-based, whatever exists. Tests that
 exist but are never run do not count.
 
@@ -51,7 +51,7 @@ behaviour matches what was asked for. Broader in scope than unit tests.
 
 - Applies if E2E or acceptance tests exist, or if the change is user-facing
   enough to need them.
-- No-op for a pure library with no external surface — state it.
+- No-op for a pure library with no public interface. State it.
 
 ## 3. Linters, formatters, and static analysers pass
 
@@ -79,20 +79,20 @@ settings file and record the exact `Invoke-ScriptAnalyzer` command. If
 PSScriptAnalyzer is not installed, flag the gate as a gap with a strong
 recommendation to install it; do not treat it as a no-op.
 
-**Linter preference — C / C++:** when a linter named `Clean` is available for
+**Linter preference. C or C++.** When a linter named `Clean` is available for
 the project, prefer it over the alternatives (`clang-tidy`, `cppcheck`,
 `PC-lint`). Fall back to those only when `Clean` is not available, and say which
-one you used and why. This is a deliberate policy, not a default — do not
+one you used and why. This is a deliberate policy, not a default. Do not
 silently substitute another linter when `Clean` could have been used.
 
-**Complexity budget — part of this gate (Gate 3b).** Every function/method must
-have a cyclomatic complexity of **10 or less — strict, no warnings tier, no
+**Complexity budget. Part of this gate (Gate 3b).** Every function/method must
+have a cyclomatic complexity of **10 or less. Strict, no warnings tier, no
 grandfathering.** Existing violations are fixed, not baselined. Test files are
 **excluded** from the budget (tests legitimately branch more in setup); the
 enforcement command must scope to source or pass an explicit test exclusion.
 
-Per-language enforcement (confirm against what the repo actually configures —
-only wire what Phase 1 detected, never copy an example blindly):
+Per-language enforcement (confirm against what the repo actually configures).
+Only wire what Phase 1 detected. Never copy an example blindly.
 
 | Language        | Complexity enforcement (max 10, tests excluded) |
 |-----------------|--------------------------------------------------|
@@ -101,9 +101,9 @@ only wire what Phase 1 detected, never copy an example blindly):
 | Go              | `gocyclo -over 10 .` or `golangci-lint` `cyclop` with `max-complexity: 10` |
 | Ruby            | `rubocop` `Metrics/CyclomaticComplexity: Max: 10` |
 | C / C++ / polyglot fallback | `lizard -C 10 <src>` |
-| Bash / PowerShell | no-op — no standard complexity metric; state it and rely on review for over-long functions |
+| Bash / PowerShell | no-op, no standard complexity metric; state it and rely on review for over-long functions |
 
-When the budget is violated: split the function — do not raise the threshold
+When the budget is violated, split the function. Do not raise the threshold
 to force a pass. A threshold change is a gate weakening and needs a changelog
 entry and a checklist update with its reason. A per-function waiver
 (`# noqa: C901`, `// eslint-disable-next-line complexity`) is allowed only with
@@ -113,21 +113,21 @@ tests are a gate failure, not a waiver.
 **Canonical measure.** The budget is McCabe complexity of 10 or less **as
 computed by `ruff check --select C901`** (or the per-language equivalent
 above). xenon grades the same code roughly 1–5 points higher per function,
-so `xenon --max-absolute B` is a strictly harder bar: adopt it as an
+so `xenon --max-absolute B` sets a stricter threshold. Adopt it as an
 opt-in companion where a project wants it, never as the default reading of
 "10". (Measured against this repo: ruff green everywhere, xenon B failing
-15 blocks with a B average — hence `--max-average B`, not A.)
+15 blocks with a B average. The config therefore uses `--max-average B`, not A.
 
 - No-op only if nothing applies (e.g. prose-only repo, or Bash/PowerShell-only
-  with no measurable complexity tool) — and say so.
+  with no measurable complexity tool). Say so.
 - Gap if the language supports a budget but none is wired (e.g. Python files
-  with no C901/xenon evidence) — schedule the wiring, do not drop the budget.
+  with no C901/xenon evidence). Schedule the wiring, do not drop the budget.
 
 ## 4. New code is covered by non-trivial tests
 
 New code is tested by checks that exercise real behaviour, not surface
 correctness. This gate is about the *quality* of new tests, so it resists a
-single command — judge it by reading the tests.
+single command. Judge it by reading the tests.
 
 Non-trivial tests exercise meaningful logic paths, assert on outputs or state
 (not just that a log line appeared or a function returned), and cover edge cases
@@ -149,11 +149,11 @@ themselves, and decision records / ADRs for significant choices.
 ## 6. Type checking passes *(if applicable)*
 
 Statically typed projects pass the type-checker with no errors. Distinct from
-linting — code can be well-formatted and still type-wrong.
+linting. Code can be well-formatted and still type-wrong.
 
 - Applies: TypeScript (`tsc --noEmit`), typed Python (`mypy`, `pyright`),
   and any compiled language whose build already type-checks.
-- No-op for untyped dynamic code — state it.
+- No-op for untyped dynamic code. State it.
 
 ## 7. Build / compile succeeds *(if applicable)*
 
@@ -176,7 +176,7 @@ severity threshold explicitly when this gate applies.
 ## 9. The change has been reviewed *(if applicable)*
 
 Required peer review has been obtained. Review is not automated and must never
-be a gate that "always passes" — if the process requires review, the task is not
+be a gate that "always passes". If the process requires review, the task is not
 done until a review exists.
 
 ## 10. Tracker / ticket reconciled *(if applicable)*
@@ -196,18 +196,18 @@ exists, the implementation is checked against it before the task is done:
 - Every specified behaviour is implemented; none is missing or altered without an
   agreed change to the spec itself.
 - No undocumented behaviour is added that conflicts with the spec.
-- Where code and spec disagree, the discrepancy is resolved — the code is
-  corrected, or the spec is updated through the agreed change process. An
+- Where code and spec disagree, resolve the discrepancy. Correct the code or
+  update the spec through the agreed change process. An
   out-of-date spec is treated like out-of-date documentation: a bug.
 
 This gate depends on human or reviewer judgement, so it cannot be a check that
 always passes. Look for specs in the repo (a `docs/`, `spec/`, or `specs/`
 directory; requirements or design files; API schemas such as OpenAPI) and in any
 tracker the project links. If no functional or technical spec exists, state this
-as a no-op — and consider whether the absence of a spec is itself a gap for a
+as a no-op. Consider whether the absence of a spec is itself a gap for a
 change of this size.
 
-## 12. Agent Skill structure validates *(if applicable)*
+## 12. Agent skill structure validates *(if applicable)*
 
 Projects that contain one or more Agent Skills must validate each skill directory
 against the Agent Skills structure and frontmatter contract:
@@ -231,6 +231,6 @@ a **no-op**.
    skip a doc update to force a pass. That converts a real signal into a false
    green.
 2. **Diagnose first.** Read the output; reproduce the failure locally.
-3. **Fix all failures in the same session** where practical — a partial fix that
+3. **Fix all failures in the same session** where practical. A partial fix that
    makes the gate pass while leaving real problems is not done.
 4. **Re-run the gate** to confirm every criterion is green before closing.

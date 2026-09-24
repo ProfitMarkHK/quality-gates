@@ -20,7 +20,7 @@ quality-gates skill from the proposed security-tooling roadmap?
 
 ## Resolution
 
-The team selected **Variant A — Evidence rail**. The final deck uses a linear,
+The team selected **Variant A, Evidence rail**. The final deck uses a linear,
 self-guided sequence where each slide adds evidence to the initial agent
 completion claim:
 

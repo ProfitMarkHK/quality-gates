@@ -5,31 +5,32 @@ description: >-
   agent-instruction files so no unit of work is "done-done" until every gate
   passes. Use this whenever the user talks about quality gates, a "definition of
   done", done-done, pre-merge or pre-commit checks, CI checks that must pass
-  before shipping, or wants CLAUDE.md / AGENTS.md / copilot-instructions /
+  before shipping, or wants AGENTS.md / CLAUDE.md / copilot-instructions /
   Cursor rules updated to require tests, linting, type-checking, docs, or
   security checks before work is considered complete. Trigger it even when the
-  user only implies this — e.g. "make sure the agent runs the tests and linter
-  before it says it's done", "set up a done checklist for this repo", "stop
-  Claude from closing tasks with failing checks" — not only when they say the
-  words "quality gates".
+  user only implies this. Examples include "make sure the agent runs the tests
+  and linter before it says it's done", "set up a done checklist for this repo",
+  or "stop the agent from closing tasks with failing checks". Trigger on intent,
+  not only when the user says "quality gates".
 ---
 
 # Quality gates
 
 Set up quality gates for a project and wire them into its agent-instruction
-files, so that every future task — human- or agent-driven — must pass the same
+files, so every future task, human or agent driven, must pass the same
 checks before it counts as done.
 
 Two outcomes matter, and the second is what makes the work durable:
 
-1. A short, project-specific **gate checklist** grounded in what the repo
-   actually uses — not a generic wish list.
-2. **Enforcement** baked into the agent-instruction files (`CLAUDE.md`,
-   `AGENTS.md`, `.github/copilot-instructions.md`, Cursor rules), so the rule is
-   read on every task rather than remembered occasionally.
+1. A short, project-specific gate checklist grounded in what the repo
+   actually uses, not a generic wish list.
+2. Enforcement in the agent-instruction files (`AGENTS.md`, `CLAUDE.md`,
+   `.github/copilot-instructions.md`, Cursor rules), so the rule is read for
+   every task.
 
-A gate is a check with an unambiguous result — it passes or it does not — that
-must be green before a task is **done-done**: safe to merge, ship, or close.
+A gate is a check with an unambiguous result. It passes or it does not.
+It must be green before a task is done-done. That means it is safe to merge,
+ship, or close.
 Gates catch regressions and omissions. They do not replace good design or human
 review.
 
@@ -44,7 +45,7 @@ Most target projects need no setup beyond the skill itself.
 - **Target-side tools are not installed by this skill.** Each gate names its
   own command (`pytest`, `ruff`, `eslint`, `tsc --noEmit`,
   `Invoke-ScriptAnalyzer`, `skills-ref`, ...). If a required tool is
-  missing, record a gap — do not invent results.
+  missing, record a gap. Do not invent results.
 - **Optional LLM assessment (off by default).** Copy `.env.example` to
   `.env` in a configuration directory **outside** the target project, set
   `QUALITY_GATES_LLM_ENABLED=1` with the approved endpoint and model
@@ -61,13 +62,13 @@ Most target projects need no setup beyond the skill itself.
 
 ## Workflow
 
-Work through four phases. Do not skip the detection phase — gate choices that
-are guessed rather than grounded in the repo are the main way this goes wrong.
+Work through four phases. Do not skip the detection phase. Guessed gate choices
+that are not grounded in the repo are the main way this goes wrong.
 
 Between Phase 1 and Phase 2, run the optional advisory LLM assessment described
 below. It is a second perspective on the same target project, not a fifth gate.
 
-### Phase 1 — Detect what the project actually uses
+### Phase 1. Detect what the project actually uses
 
 Gather evidence before deciding anything. Locate the bundled script in the
 quality-gates skill package and run it against the target project:
@@ -88,12 +89,12 @@ candidate when PowerShell exists without analyzer evidence. It only reads; it
 never writes.
 
 Treat the output as evidence, not as decisions. Confirm anything ambiguous by
-opening the relevant config files (e.g. read `pyproject.toml`, `package.json`
-scripts, `.golangci.yml`) — the script points you at them but the repo is the
+opening the relevant config files (for example, read `pyproject.toml`, `package.json`
+scripts, `.golangci.yml`). The script points you at them, but the repo is the
 source of truth. If the script cannot run (unusual layout, non-code project),
 inspect the tree by hand and gather the same facts.
 
-### Phase 1.5 — Run the optional LLM assessment
+### Phase 1.5. Run the optional LLM assessment
 
 Read `references/llm-assessment.md`. After deterministic evidence collection,
 pipe the detector's JSON report through `scripts/llm_assessment_contract.py` to
@@ -121,19 +122,19 @@ approved capability is unavailable, times out, fails, or returns
 only part of the result, record the status and reason and continue the
 deterministic review. An unavailable assessment does not block the review.
 
-### Phase 2 — Map evidence to the gate catalog
+### Phase 2. Map evidence to the gate catalog
 
 Read `references/gate-catalog.md`. It is the menu of gates and the rules for
 choosing. Note two policies it encodes: for C / C++ projects prefer a linter
 named `Clean` when it is available, falling back to `clang-tidy` / `cppcheck`
 only when it is not (and say which you used); and check the implementation
-against any functional or technical specification the project has (gate 11) —
-look in `docs/`, `spec/`, `specs/`, API schemas, and the tracker, and if no spec
+against any functional or technical specification the project has (gate 11).
+Look in `docs/`, `spec/`, `specs/`, API schemas, and the tracker. If no spec
 exists, state that as a no-op or a gap rather than ignoring it.
 
-For Agent Skill projects (gate 12), run `npx --yes skills-ref validate
-<skill-directory>` once for every detected `SKILL.md` directory. If no Agent
-Skill is detected, record a no-op. If the validator cannot run, record a gap
+For agent skill projects (gate 12), run `npx --yes skills-ref validate
+<skill-directory>` once for every detected `SKILL.md` directory. If no agent
+skill is detected, record a no-op. If the validator cannot run, record a gap
 with the missing prerequisite; do not silently skip the check.
 
 For PowerShell, parser or syntax validation does not satisfy the linter gate.
@@ -145,28 +146,27 @@ Use advisory LLM observations only to focus the human verification described
 above. For **each** gate, decide one of three states from deterministic and
 verified project evidence and record the reason:
 
-- **Applies** — name the exact command that runs it.
-- **No-op** — it genuinely does not apply (e.g. no compile step in an
+- **Applies.** Name the exact command that runs it.
+- **No-op.** It genuinely does not apply (e.g. no compile step in an
   interpreted project). State this explicitly; a silent skip reads as an
   oversight.
-- **Gap** — it should apply but the project cannot satisfy it yet (e.g. no tests
+- **Gap.** It should apply but the project cannot satisfy it yet (e.g. no tests
   exist). Flag it as work to do, not a reason to drop the gate.
 
-The honesty of the three-state distinction is the whole point: a reader must be
-able to tell "checked and not needed" from "forgotten". Stating no-ops and gaps
-out loud is what earns trust in the checklist.
+The three states let readers tell "checked and not needed" from "forgotten".
+Record no-ops and gaps in the checklist.
 
-### Phase 3 — Define one runner and write the checklist
+### Phase 3. Define one runner and write the checklist
 
-Define a **single command** that runs every automated gate and exits non-zero on
-any failure — this is what lets the same gates run in a pre-commit hook and in
-merge automation without special setup. Not all gates run in the runner: gates 4
+Define a single command that runs every automated gate and exits non-zero on
+any failure. This lets the same gates run in a pre-commit hook and in
+merge automation without special setup. Not all gates run in the runner. Gates 4
 (coverage), 5 (docs), 9 (review), 10 (ticket), and 11 (spec alignment) require
 human judgement and are not in scope for the runner. Gate 12 is automated when
 the target contains Agent Skills and belongs in the runner when the project has
 one. Gate 3's complexity budget (strict max 10 per function/method, tests
 excluded, no grandfathering) is automated wherever Gate 3 applies and belongs
-in the runner alongside the linters — e.g. Python targets run
+in the runner alongside the linters. For example, Python targets run
 `ruff check --select C901` scoped to source (plus strict
 `xenon --max-absolute B` where the project adopts the companion). Manual gates are enforced by the done-done block referencing the checklist,
 not by a command.
@@ -182,36 +182,36 @@ project's docs (e.g. `docs/quality-gates.md`, or wherever the project keeps
 docs). Fill in every gate's state, command, and the no-op/gap reasons. Keep it
 short enough to scan and unambiguous enough to act on.
 
-### Phase 4 — Enforce in the agent-instruction files
+### Phase 4. Enforce in the agent-instruction files
 
-This is what makes gates stick. Read `references/agent-instructions.md` for the
+Read `references/agent-instructions.md` for the
 file conventions and the safe-edit rules, then add a short "Definition of done"
 block to each target agent-instruction file, using `assets/done-done-block.md`
 as the template (fill in the real runner command and the real checklist path).
 
-Keep the full detail in the one checklist doc and keep the instruction-file
-blocks short, each pointing to that doc — duplicating all the gates into every
-file guarantees they drift apart, and the catalog treats out-of-sync docs as a
+Keep the full detail in one checklist doc. Keep the instruction-file
+blocks short and point each one to that doc. Duplicating all the gates into every
+file makes them drift apart. The catalog treats out-of-sync docs as a
 bug. The done-done block in each agent-instruction file covers both automated
 and manual gates by reference: the agent reads the checklist to know what
 passing means, even though the runner command only runs the automated gates.
 
-Edit these files with care — they usually already hold important instructions:
+Edit these files with care. They usually already hold important instructions:
 
 - **Read each file first** and preserve its existing content.
 - Wrap the managed block in the `<!-- BEGIN/END QUALITY GATES (managed) -->`
   markers so a later run updates it in place instead of appending a duplicate.
 - If a target file does not exist and its convention is wanted, create it. If no
   agent-instruction file exists at all, create at least one primary file
-  (`AGENTS.md` for tool-neutral projects, `CLAUDE.md` for Claude Code / Cowork
-  teams). Note any convention you deliberately did not create.
+  (`AGENTS.md` for tool-neutral projects, or `CLAUDE.md` for teams that use
+  Claude). Note any convention you deliberately did not create.
 
 ### Verify before calling it done
 
-Applying this skill is itself a unit of work, so hold it to its own bar:
+Applying this skill is a unit of work. Verify it with the same gates:
 
 - Every tool name, command, and path written into the checklist or the
-  instruction files traces to real evidence from Phase 1 for *this* project —
+  instruction files traces to real evidence from Phase 1 for this project,
   not to an example from the gate catalog. The catalog's examples exist to
   illustrate the shape of a gate, and it is easy to carry one over out of habit
   while adapting a template block; read back what was actually written and
@@ -239,7 +239,7 @@ list of agent-instruction files updated or created. Call out any gap that needs
 follow-up work (most often: the project has no tests, or a linter that should be
 configured is not).
 
-## Developer notes (skill authors only — skip for target reviews)
+## Developer notes (skill authors only, skip for target reviews)
 
 - The skill's own development loop (evals, fixtures, packaging, release
   checklist) lives in the source repository (`README.md`,
@@ -254,26 +254,26 @@ configured is not).
 
 ## Resources
 
-- `references/gate-catalog.md` — the menu of gates, the three-state decision
+- `references/gate-catalog.md`. The menu of gates, the three-state decision
   rule, and what to do when a gate fails. Read in Phase 2.
-- `references/agent-instructions.md` — file conventions and idempotent-edit
+- `references/agent-instructions.md`. File conventions and idempotent edit
   rules for CLAUDE.md, AGENTS.md, Copilot, and Cursor. Read in Phase 4.
-- `references/llm-assessment.md` — the optional assessment's execution,
+- `references/llm-assessment.md`. The optional assessment's execution,
   provenance, trust-boundary, result, and failure contract.
-- `scripts/llm_assessment_contract.py` — the standard-library input serializer
+- `scripts/llm_assessment_contract.py`. The standard-library input serializer
   and result validator used at the secure LLM boundary.
-- `scripts/llm_assessment_execute.py` — the standard-library gateway execution
+- `scripts/llm_assessment_execute.py`. The standard-library gateway execution
   seam (OpenAI-compatible default, Anthropic-compatible alternative) with
   bounded timeout, output, payload, and retry policies. See `.env.example`
   for operator configuration.
-- `scripts/detect_project.py` — read-only project scanner used in Phase 1.
-- `scripts/quarantine_read.py` — display-only quarantine triage reader for
+- `scripts/detect_project.py`. Read-only project scanner used in Phase 1.
+- `scripts/quarantine_read.py`. Display-only quarantine triage reader for
   human review; never feeds gate decisions.
-- `assets/checklist-template.md` — template for the project checklist doc.
-- `assets/done-done-block.md` — template for the instruction-file block.
-- `.env.example` — placeholder operator configuration for the optional LLM
+- `assets/checklist-template.md`. Template for the project checklist doc.
+- `assets/done-done-block.md`. Template for the instruction-file block.
+- `.env.example`. Placeholder operator configuration for the optional LLM
   assessment. Copy to `.env` outside the target; the real file is never
   shipped.
-- `CONTEXT.md` — skill glossary. Background for skill authors.
-- `docs/adr/` — decision records (Clean preference, PSScriptAnalyzer policy,
+- `CONTEXT.md`. Skill glossary. Background for skill authors.
+- `docs/adr/`. Decision records (Clean preference, PSScriptAnalyzer policy,
   quarantine design). Background for skill authors.
