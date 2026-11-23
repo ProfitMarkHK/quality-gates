@@ -65,6 +65,8 @@ checklist before tagging a release or sharing the packaged `.skill` file.
 
 ## Roadmap
 
-- Enable branch protection on `main` requiring the `validate` workflow checks.
-  The workflow file is in the repo (`.github/workflows/validate.yml`); the
-  protection rule itself is a GitHub settings change needing an org admin.
+- ~~Enable branch protection on `main` requiring the `validate` workflow
+  checks.~~ Done 2026-11-23: `main` requires the `structural-gates` check
+  (strict, enforced for admins too, no force pushes or deletions). No org
+  admin was needed — the repo-creator account already holds repo-admin
+  rights, so the setting was applied with the normal member account.
