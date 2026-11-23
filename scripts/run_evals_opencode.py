@@ -99,7 +99,10 @@ DEAD_ENDPOINT = "http://127.0.0.1:9/v1/chat/completions"
 
 FIXTURES_PROMPT_HEAD = """\
 You are applying the quality-gates skill to the project in the current
-working directory. The skill package lives at: {skill_dir}
+working directory. Work only within the current working directory: do not
+read, modify, or run commands against files outside it. If the task seems
+to require anything outside this directory, stop and report that instead.
+The skill package lives at: {skill_dir}
 Read its SKILL.md first and follow it exactly as written for the whole task,
 including the phases that direct you to read files under its references/,
 assets/, and scripts/ directories. The optional LLM assessment (Phase 1.5)

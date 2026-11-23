@@ -169,6 +169,17 @@ runs. Scoring stays human: the index lists every run's output dir,
 assessment status, reasons, quarantine files, and the eval's expectations;
 read the output dirs and score them.
 
+Known limitation, stated after a real incident: fixture sessions run with
+`--auto` and are sandboxed only by their working directory and the prompt's
+stay-in-directory instruction — the model is capable of acting outside it.
+In the first full re-test run, one eval-4 session ignored its fixture and
+applied the skill to the skill's home repository instead (caught by the
+per-run output dirs and the session's own report; the run was voided and
+re-run). If you need a hard guarantee, run the suite under a dedicated
+account or container where nothing outside the output directory is
+reachable. When a baseline arm predates the `evals/` extraction fix, also
+audit the transcripts for rubric reads before trusting the comparison.
+
 Known approximation: the shim serves an OpenCode agent session, not a raw
 completion endpoint, so caller temperature and token budgets are not
 forwarded, and no tool-less agent is guaranteed available across OpenCode
