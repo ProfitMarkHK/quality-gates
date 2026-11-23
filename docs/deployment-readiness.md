@@ -65,5 +65,6 @@ checklist before tagging a release or sharing the packaged `.skill` file.
 
 ## Roadmap
 
-- Add a CI workflow to run `scripts/validate_skill.py` on every push after this
-  repo has a remote. No remote is configured yet.
+- Enable branch protection on `main` requiring the `validate` workflow checks.
+  The workflow file is in the repo (`.github/workflows/validate.yml`); the
+  protection rule itself is a GitHub settings change needing an org admin.
