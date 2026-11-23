@@ -31,6 +31,12 @@ jobs:
         with:
           node-version: "20"
 
+      # The conftest-hermetic test spawns a child pytest process, so the
+      # suite is stdlib-only except for that one dependency. Caught by the
+      # first remote run (green locally where pytest happens to exist).
+      - name: Install test dependencies
+        run: python3 -m pip install pytest
+
       - name: Skill structural validation
         run: python3 scripts/validate_skill.py
 

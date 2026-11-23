@@ -25,6 +25,12 @@ silent skip. The roadmap item "add a CI workflow once a remote exists" is
 cleared; enabling branch protection on `main` (requiring the validate
 checks) remains a GitHub-settings follow-up for an org admin.
 
+The first remote run caught a real portability bug the local environment
+could not see: the conftest-hermetic test spawns a child `pytest` process,
+which exists on the development machine but not on a bare runner, so CI now
+installs pytest explicitly — the second-environment signal remote CI exists
+for, working as intended.
+
 ### Documentation prose cleanup
 
 - Rewrote project guidance, skill references, templates, and release notes to
