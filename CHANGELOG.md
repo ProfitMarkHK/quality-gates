@@ -38,6 +38,61 @@ repo-admin rights; no separate org-admin credential was needed. From this
 point every change to `main` lands through a green-checked PR, including
 this one.
 
+### Good-tests reference, Gate 4b state-transition coverage, and Gate 13 core/shell boundary
+
+Gate 4 gains a concrete test-quality bar in a new reference,
+`references/good-tests.md`: the assertion-independence question ("if a
+realistic bug were introduced, would this test fail?"), three failure smells
+(circular assertion, vacuous pass, masking fixture), and a warning that call
+counts prove less than they appear to. Gate 4b requires the changed code's
+implicit state machines to be enumerated and every implemented transition —
+especially failure and edge transitions — entered by a test or stated
+unreachable; the audit method is in the same reference. Gate 13 checks the
+functional core / imperative shell boundary: dependency direction,
+nondeterminism behind an injected seam, and one decode path at the boundary.
+Both new gates are judgement gates (checklist-enforced, not runner commands)
+with the standard applies/no-op/gap states; Gate 13 is a no-op for projects
+with no recognizable domain core.
+
+Motivation, recorded from live use against a TypeScript market-data service
+on 2026-11-23: a suite that had passed conventional review still contained a
+circular pricing assertion, a vacuously-true live test, and a fixture that
+masked a real pricing bug (a degenerate input returned zero in every case); a
+state-machine pass then found six implemented but untested failure/edge
+transitions, all closed with tests that each fail under a named plausible
+bug; a core/shell review found domain modules importing the transport module,
+wall-clock reads inside domain logic, and raw wire records bypassing the
+decoders. All three additions generalize those findings. No fixture, tool, or
+path from that project appears in the skill text (example-leakage rule): the
+new prose names only patterns (a cache, a cursor, a guard, an injected clock)
+and says they are illustrations.
+
+Mirrored per the docs-sync rule: `quality-gates.md` criterion 4 expanded and
+criteria 4b and 13 added; the checklist template's gate table gained rows 4b
+and 13; `SKILL.md` Phase 2 now points at the good-tests reference and Phase 3
+lists the judgement gates as 4, 4b, 5, 9, 10, 11, and 13; `CONTEXT.md`'s
+runner entry updated; deployment-readiness item 8 corrected to 18 packaged
+files (the previous "exactly 14" had already drifted out of date before this
+change; ADR-0004, ADR-0005, and the quarantine reader had been added without
+updating it).
+
+Structural gates: `scripts/validate_skill.py` passes, `npx --yes skills-ref
+validate skill/quality-gates` passes, detector unit tests 116 pass (1 live
+smoke skip). Behavioural gate: evals 0-4 re-run with and without the change
+in ten blind agent sessions against fresh fixture copies. Result:
+**30/30 assertions with the change, 30/30 without (60/60), no regression.**
+The new gates landed as designed: Gate 4b appears in every with-change
+checklist as a grounded no-op (each fixture is stateless code) and Gate 13
+applies with grounded reasons where a domain core exists (py-service,
+web-dashboard, jsonparser) while recording a designed no-op for
+backup-scripts ("no recognizable domain core"); idempotency (eval-4) holds
+with one marker pair and one checklist after a double run; coordinator
+spot-checks of the produced files confirmed the agent reports and found zero
+leakage from the new reference text. Packaging re-verified once:
+`package_skill.py` writes exactly 18 files including
+`references/good-tests.md`. Evals 5-7 (LLM assessment) are untouched by this
+change and retain their iteration 3/4 live-gateway results.
+
 ### Documentation prose cleanup
 
 - Rewrote project guidance, skill references, templates, and release notes to

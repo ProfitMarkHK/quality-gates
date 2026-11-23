@@ -129,6 +129,11 @@ choosing. Note two policies it encodes: for C / C++ projects prefer a linter
 named `Clean` when it is available, falling back to `clang-tidy` / `cppcheck`
 only when it is not (and say which you used); and check the implementation
 against any functional or technical specification the project has (gate 11).
+Gate 4's test-quality bar is defined in `references/good-tests.md`. Read that
+reference when judging Gate 4, when Gate 4b (state-transition coverage)
+applies, and when Gate 13 (functional core / imperative shell boundary)
+applies. All three are judgement gates: the checklist enforces them by
+reference, the runner does not run them.
 Look in `docs/`, `spec/`, `specs/`, API schemas, and the tracker. If no spec
 exists, state that as a no-op or a gap rather than ignoring it.
 
@@ -161,7 +166,8 @@ Record no-ops and gaps in the checklist.
 Define a single command that runs every automated gate and exits non-zero on
 any failure. This lets the same gates run in a pre-commit hook and in
 merge automation without special setup. Not all gates run in the runner. Gates 4
-(coverage), 5 (docs), 9 (review), 10 (ticket), and 11 (spec alignment) require
+(test quality), 4b (state-transition coverage), 5 (docs), 9 (review), 10
+(ticket), 11 (spec alignment), and 13 (core/shell boundary) require
 human judgement and are not in scope for the runner. Gate 12 is automated when
 the target contains Agent Skills and belongs in the runner when the project has
 one. Gate 3's complexity budget (strict max 10 per function/method, tests
@@ -256,6 +262,9 @@ configured is not).
 
 - `references/gate-catalog.md`. The menu of gates, the three-state decision
   rule, and what to do when a gate fails. Read in Phase 2.
+- `references/good-tests.md`. The test-quality bar for Gate 4: assertion
+  independence, the three failure smells, and the state-transition audit
+  method for Gate 4b. Read when judging Gates 4, 4b, and 13.
 - `references/agent-instructions.md`. File conventions and idempotent edit
   rules for CLAUDE.md, AGENTS.md, Copilot, and Cursor. Read in Phase 4.
 - `references/llm-assessment.md`. The optional assessment's execution,
