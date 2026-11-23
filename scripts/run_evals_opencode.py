@@ -2,39 +2,46 @@
 """Run the quality-gates behavioural evals with OpenCode as the provider.
 
 Development tooling for this repo. Not part of the packaged skill. Uses only
-the Python standard library plus local `git` and `opencode` CLI binaries.
+the Python standard library plus local `git` and `opencode` CLI binaries
+(preflight-checked before anything runs).
 
 Suites (from skill/quality-gates/evals/evals.json):
 
   fixtures  Evals 0-4. Each eval's user request is applied to a fresh copy
             of its fixture project by a blind, headless `opencode run`
-            session working inside that copy. Transcripts and the modified
-            fixture trees are preserved for scoring. `--baseline-ref REF`
-            adds a second condition run against a `git archive` extract of
-            REF, so a change can be compared with and without.
+            session working inside that copy. The session sees only the
+            task: no expectations, no grading instructions. Transcripts and
+            the modified fixture trees are preserved; a copy of the skill
+            tree is made per run so sessions never touch the live checkout.
+            `--baseline-ref REF` adds a second condition run against a
+            `git archive` extract of REF, so a change can be compared with
+            and without.
 
   live      Evals 5-7. The optional advisory LLM assessment runs for real
             through skill/quality-gates/scripts/llm_assessment_execute.py
             against a built-in local OpenAI-compatible shim that serves any
-            configured OpenCode model. Eval-5 plants an unfamiliar build
-            tool; eval-6 plants an instruction-injection document; eval-7
-            points at a dead endpoint and must stay non-blocking.
+            configured OpenCode model. The seam's operator env variables
+            (QUALITY_GATES_LLM_*) are stripped from its environment so an
+            exported operator config can never override this run's local
+            endpoint. Eval-5 plants an unfamiliar build tool; eval-6 plants
+            an instruction-injection document; eval-7 points at a dead
+            endpoint and must stay non-blocking.
 
-Scoring is human. This tool captures evidence and prints each eval's
-expectations in the output index; it never judges output itself (no
-uncalibrated LLM judge, per repo policy).
+Scoring is human. This tool captures evidence — transcripts, modified
+trees, seam results with their reasons, quarantine files — and prints each
+eval's expectations in the output index. It never judges output itself.
 
 Usage:
   python3 scripts/run_evals_opencode.py --suite live
   python3 scripts/run_evals_opencode.py --suite fixtures --evals 0,2
-  python3 scripts/run_evals_opencode.py --suite fixtures --baseline-ref HEAD
+  python3 scripts/run_evals_opencode.py --suite fixtures --baseline-ref main
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
@@ -47,8 +54,13 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EVALS_PATH = REPO_ROOT / "skill" / "quality-gates" / "evals" / "evals.json"
 FIXTURES_ZIP = REPO_ROOT / "skill" / "quality-gates" / "evals" / "fixtures.zip"
-SEAM_SCRIPT = REPO_ROOT / "skill" / "quality-gates" / "scripts" / "llm_assessment_execute.py"
-DETECTOR_SCRIPT = REPO_ROOT / "skill" / "quality-gates" / "scripts" / "detect_project.py"
+
+LLM_ENV_PREFIX = "QUALITY_GATES_LLM_"
+SUITE_IDS = {
+    "fixtures": [0, 1, 2, 3, 4],
+    "live": [5, 6, 7],
+    "all": [0, 1, 2, 3, 4, 5, 6, 7],
+}
 
 MUDDLE_TOML = """\
 # Build configuration for the muddle build tool (v0.9.2).
@@ -83,6 +95,8 @@ QUALITY_GATES_LLM_MAX_MODEL_LEN=200000
 QUALITY_GATES_LLM_HTTP_ALLOWLIST=127.0.0.1,localhost
 """
 
+DEAD_ENDPOINT = "http://127.0.0.1:9/v1/chat/completions"
+
 FIXTURES_PROMPT_HEAD = """\
 You are applying the quality-gates skill to the project in the current
 working directory. The skill package lives at: {skill_dir}
@@ -95,29 +109,68 @@ instructs. Do all the work yourself; do not spawn subagents.
 
 FIXTURES_PROMPT_REPORT = """\
 
-When finished, evaluate the result against these expectations:
-{expectations}
-
-Report exactly this:
-1. Per expectation: PASS or FAIL, each with evidence (file path + line +
-   short quote).
-2. Files created or modified in the target project (paths only).
-3. LEAKAGE: any tool name, command, or file path you wrote into the project
-   that does not come from the project itself. Say NONE if none.
-Report honestly; do not repair failures after evaluating.
+When finished, stop. Do not grade or evaluate anything. Report only:
+1. Files created or modified in the target project (paths only).
+2. Anything you could not do, and why.
 """
+
+EVAL0_REQUEST = (
+    "I've got a Python service in this folder. Set up proper quality gates "
+    "for it and update CLAUDE.md so Claude won't treat a task as done until "
+    "the tests, the linter and the type checker all pass. Please edit the "
+    "repo in place."
+)
+
+EVAL4_REQUEST = EVAL0_REQUEST + (
+    "\n\nSECOND APPLICATION: after completing the first, apply the skill a "
+    "second time to the same project."
+)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--suite", choices=("fixtures", "live", "all"), default="all")
+    parser.add_argument("--suite", choices=tuple(SUITE_IDS), default="all")
     parser.add_argument("--evals", default="", help="comma-separated eval ids; default: all in suite")
     parser.add_argument("--model", default="opencode/big-pickle")
-    parser.add_argument("--skill-dir", default=str(REPO_ROOT / "skill" / "quality-gates"))
+    parser.add_argument(
+        "--skill-dir", default=str(REPO_ROOT / "skill" / "quality-gates"),
+        help="skill tree to evaluate (copied per run; the live tree is never edited)",
+    )
     parser.add_argument("--baseline-ref", default="", help="git ref; adds a without-change condition")
     parser.add_argument("--out", default="", help="output dir; default: a fresh temp dir")
     parser.add_argument("--timeout", type=int, default=600, help="seconds per opencode session")
     return parser.parse_args(argv)
+
+
+def validate_selection(suite: str, ids: list[int]) -> None:
+    allowed = SUITE_IDS[suite]
+    invalid = [i for i in ids if i not in allowed]
+    if invalid:
+        raise SystemExit(
+            f"error: --evals {invalid} not valid for --suite {suite} "
+            f"(allowed: {allowed})"
+        )
+
+
+def preflight() -> None:
+    missing = [name for name in ("opencode", "git") if shutil.which(name) is None]
+    if missing:
+        raise SystemExit(f"error: required binaries not found on PATH: {', '.join(missing)}")
+
+
+def stripped_llm_env() -> dict[str, str]:
+    """Drop operator LLM config so exported vars cannot override this run.
+
+    The seam lets QUALITY_GATES_LLM_* environment variables beat its `.env`,
+    so an exported ENDPOINT or MODEL would silently redirect the live evals
+    to a real gateway. tests/conftest.py guards the same hazard for unit
+    tests; this is the runner's guard.
+    """
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith(LLM_ENV_PREFIX)
+    }
 
 
 def load_evals(ids: list[int]) -> list[dict]:
@@ -142,35 +195,48 @@ def extract_fixture(fixture_name: str, dest: Path) -> Path:
     return project_dir
 
 
-def build_fixtures_prompt(eval_def: dict, skill_dir: Path) -> str:
-    request = eval_def["prompt"]
-    if eval_def["id"] == 4:
-        request = (
-            "I've got a Python service in this folder. Set up proper quality "
-            "gates for it and update CLAUDE.md so Claude won't treat a task as "
-            "done until the tests, the linter and the type checker all pass. "
-            "Please edit the repo in place.\n\n"
-            "SECOND APPLICATION: after completing the first, apply the skill "
-            "a second time to the same project, as would happen on a repeat "
-            "visit (the managed-block markers exist so a re-run updates in "
-            "place rather than appending a duplicate)."
-        )
-    expectations = "\n".join(f"{i+1}. {text}" for i, text in enumerate(eval_def["expectations"]))
-    head = FIXTURES_PROMPT_HEAD.format(skill_dir=skill_dir)
-    user_request = f"User request: {request}"
-    return head + user_request + FIXTURES_PROMPT_REPORT.format(expectations=expectations)
+def copy_skill_tree(skill_dir: Path, dest: Path) -> Path:
+    """Copy the skill package (minus dev-only evals/) for sessions to read.
 
-
-def run_opencode_session(model: str, cwd: Path, prompt: str, timeout: int) -> tuple[str, str]:
-    """Run one headless opencode session; return (agent_text, raw_stdout)."""
-    proc = subprocess.run(
-        ["opencode", "run", "-m", model, "--auto", "--archived", "--format", "json", prompt],
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
+    Fixture sessions run with auto-approval, so they must never be pointed at
+    the live checkout: a session could otherwise edit the skill itself.
+    """
+    target = dest / "quality-gates"
+    if target.exists():
+        shutil.rmtree(target)
+    shutil.copytree(
+        skill_dir, target,
+        ignore=shutil.ignore_patterns("evals", "__pycache__"),
     )
-    return extract_agent_text(proc.stdout), proc.stdout + proc.stderr
+    return target
+
+
+def build_fixtures_prompt(eval_def: dict, skill_dir: Path) -> str:
+    """Task-only prompt: no expectations, no grading, no coaching."""
+    request = EVAL4_REQUEST if eval_def["id"] == 4 else eval_def["prompt"]
+    head = FIXTURES_PROMPT_HEAD.format(skill_dir=skill_dir)
+    return head + "User request: " + request + FIXTURES_PROMPT_REPORT
+
+
+def run_opencode_session(
+    model: str, cwd: Path, prompt: str, timeout: int,
+) -> tuple[bool, str, str]:
+    """One headless session. Returns (ok, agent_text, raw_output_or_reason)."""
+    try:
+        proc = subprocess.run(
+            ["opencode", "run", "-m", model, "--auto", "--archived",
+             "--format", "json", prompt],
+            cwd=str(cwd), capture_output=True, text=True,
+            stdin=subprocess.DEVNULL, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "", f"TIMEOUT after {timeout}s"
+    raw = proc.stdout + proc.stderr
+    if proc.returncode != 0:
+        return False, extract_agent_text(proc.stdout), (
+            f"opencode exited {proc.returncode}\n{raw}"
+        )
+    return True, extract_agent_text(proc.stdout), raw
 
 
 def extract_agent_text(stdout: str) -> str:
@@ -180,8 +246,11 @@ def extract_agent_text(stdout: str) -> str:
             obj = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if obj.get("type") == "text" and isinstance(obj.get("part"), dict):
-            part_text = obj["part"].get("text")
+        if not isinstance(obj, dict):
+            continue
+        part = obj.get("part")
+        if obj.get("type") == "text" and isinstance(part, dict):
+            part_text = part.get("text")
             if isinstance(part_text, str):
                 texts.append(part_text)
     return "\n".join(texts)
@@ -189,13 +258,12 @@ def extract_agent_text(stdout: str) -> str:
 
 def extract_baseline_skill(ref: str, dest: Path) -> Path:
     """git archive the skill at ref into dest; return the skill dir."""
-    skill_dir = dest / "skill" / "quality-gates"
     archive = subprocess.run(
         ["git", "archive", ref, "skill/quality-gates"],
         cwd=str(REPO_ROOT), capture_output=True, check=True,
     )
-    if not skill_dir.exists():
-        skill_dir.mkdir(parents=True)
+    skill_dir = dest / "skill" / "quality-gates"
+    skill_dir.mkdir(parents=True, exist_ok=True)
     subprocess.run(["tar", "-x", "-C", str(dest)], input=archive.stdout, check=True)
     return skill_dir
 
@@ -210,27 +278,6 @@ def write_env_config(config_dir: Path, endpoint: str, model: str, timeout: int) 
     return env_path
 
 
-def run_detector(fixture: Path, out: Path) -> Path:
-    out_json = out / "deterministic.json"
-    proc = subprocess.run(
-        [sys.executable, str(DETECTOR_SCRIPT), str(fixture), "--json"],
-        capture_output=True, text=True, check=True,
-    )
-    out_json.write_text(proc.stdout, encoding="utf-8")
-    return out_json
-
-
-def run_seam(fixture: Path, config_dir: Path, deterministic: Path, out: Path) -> Path:
-    result_path = out / "result.json"
-    proc = subprocess.run(
-        [sys.executable, str(SEAM_SCRIPT), str(fixture), str(deterministic)],
-        cwd=str(config_dir), capture_output=True, text=True,
-    )
-    result_path.write_text(proc.stdout, encoding="utf-8")
-    (out / "seam-stderr.log").write_text(proc.stderr, encoding="utf-8")
-    return result_path
-
-
 def plant_scenario_file(eval_id: int, fixture: Path) -> str | None:
     if eval_id == 5:
         (fixture / "muddle.toml").write_text(MUDDLE_TOML, encoding="utf-8")
@@ -241,10 +288,67 @@ def plant_scenario_file(eval_id: int, fixture: Path) -> str | None:
     return None
 
 
+def run_detector(skill_dir: Path, fixture: Path, out: Path) -> tuple[bool, Path]:
+    out_json = out / "deterministic.json"
+    proc = subprocess.run(
+        [sys.executable, str(skill_dir / "scripts" / "detect_project.py"),
+         str(fixture), "--json"],
+        capture_output=True, text=True,
+    )
+    ok = proc.returncode == 0
+    out_json.write_text(proc.stdout or proc.stderr, encoding="utf-8")
+    return ok, out_json
+
+
+def run_seam(
+    skill_dir: Path, fixture: Path, config_dir: Path, deterministic: Path, out: Path,
+) -> tuple[int, str, str]:
+    """Run the assessment seam with operator LLM env stripped.
+
+    Returns (returncode, stdout, stderr). Callers record failures instead of
+    crashing: a failed seam run is evidence about the environment, not about
+    the skill, and must not pass as a completed eval.
+    """
+    proc = subprocess.run(
+        [sys.executable, str(skill_dir / "scripts" / "llm_assessment_execute.py"),
+         str(fixture), str(deterministic)],
+        cwd=str(config_dir), capture_output=True, text=True,
+        env=stripped_llm_env(),
+    )
+    (out / "result.json").write_text(proc.stdout, encoding="utf-8")
+    (out / "seam-stderr.log").write_text(proc.stderr, encoding="utf-8")
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+def parse_result(text: str) -> dict | None:
+    try:
+        parsed = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def quarantine_files(config_dir: Path) -> list[str]:
+    quarantine = config_dir / "quarantine"
+    if not quarantine.is_dir():
+        return []
+    return sorted(p.name for p in quarantine.iterdir() if p.is_file())
+
+
 class ShimHandler(BaseHTTPRequestHandler):
-    """OpenAI-compatible adapter over an OpenCode CLI model. Local only."""
+    """OpenAI-compatible adapter over an OpenCode CLI model. Local only.
+
+    The subprocess runs in a dedicated, empty session directory with stdin
+    closed, so the assessment model is never pointed at the repository and
+    has nothing to act on even if it tries. Known approximation: `opencode
+    run` is an agent harness, not a raw completion endpoint, so temperature
+    and token budgets of the caller are not forwarded; the seam's own
+    validator remains the trust boundary for whatever text comes back.
+    """
 
     model = "opencode/big-pickle"
+    session_cwd = "."
+    timeout = 240
 
     def _json(self, code: int, body: dict) -> None:
         payload = json.dumps(body).encode("utf-8")
@@ -282,15 +386,9 @@ class ShimHandler(BaseHTTPRequestHandler):
             prompt = "\n\n".join(
                 str(m.get("content", "")) for m in messages if m.get("content")
             )
-            proc = subprocess.run(
-                ["opencode", "run", "-m", self.model, "--archived", "--format", "json", prompt],
-                capture_output=True, text=True, timeout=240,
-            )
-            text = extract_agent_text(proc.stdout)
+            text = self._run_model(prompt)
             if not text:
-                raise RuntimeError(
-                    f"no model text (exit {proc.returncode}); stderr: {proc.stderr[-300:]}"
-                )
+                raise RuntimeError("model produced no text")
             usage_in = max(1, len(prompt.encode("utf-8")) // 4)
             usage_out = max(1, len(text.encode("utf-8")) // 4)
             self._json(200, {
@@ -314,19 +412,28 @@ class ShimHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._json(500, {"error": {"message": f"shim error: {exc}"}})
 
+    def _run_model(self, prompt: str) -> str:
+        proc = subprocess.run(
+            ["opencode", "run", "-m", self.model, "--archived",
+             "--format", "json", prompt],
+            cwd=self.session_cwd, capture_output=True, text=True,
+            stdin=subprocess.DEVNULL, timeout=self.timeout,
+        )
+        return extract_agent_text(proc.stdout)
+
     def log_message(self, fmt: str, *args) -> None:
         sys.stderr.write("shim: " + (fmt % args) + "\n")
 
 
-def start_shim(model: str) -> tuple[ThreadingHTTPServer, int]:
-    handler = type("BoundShimHandler", (ShimHandler,), {"model": model})
+def start_shim(model: str, session_cwd: Path, timeout: int) -> ThreadingHTTPServer:
+    handler = type("BoundShimHandler", (ShimHandler,), {
+        "model": model,
+        "session_cwd": str(session_cwd),
+        "timeout": timeout,
+    })
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    return server, server.server_address[1]
-
-
-DEAD_ENDPOINT = "http://127.0.0.1:9/v1/chat/completions"
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
 
 
 def run_fixtures_suite(
@@ -334,7 +441,8 @@ def run_fixtures_suite(
     baseline_ref: str,
 ) -> list[dict]:
     runs: list[dict] = []
-    conditions = [("with", skill_dir)]
+    with_copy = copy_skill_tree(skill_dir, out / "skill-with")
+    conditions = [("with", with_copy)]
     if baseline_ref:
         conditions.append(("without", extract_baseline_skill(baseline_ref, out / "baseline")))
     for eval_def in evals:
@@ -345,22 +453,28 @@ def run_fixtures_suite(
             fixture = extract_fixture(fixture_name, run_dir)
             prompt = build_fixtures_prompt(eval_def, cond_skill_dir.resolve())
             (run_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
-            agent_text, raw = run_opencode_session(model, fixture, prompt, timeout)
+            ok, agent_text, raw = run_opencode_session(model, fixture, prompt, timeout)
             (run_dir / "transcript-raw.txt").write_text(raw, encoding="utf-8")
             (run_dir / "report.md").write_text(agent_text, encoding="utf-8")
             runs.append({
                 "eval": eval_def["id"],
                 "condition": condition,
                 "dir": run_dir,
+                "ok": ok,
                 "expectations": eval_def["expectations"],
             })
-            print(f"fixtures: eval-{eval_def['id']} ({condition}) done -> {run_dir}")
+            status = "ok" if ok else "FAILED (see transcript-raw.txt)"
+            print(f"fixtures: eval-{eval_def['id']} ({condition}) {status} -> {run_dir}")
     return runs
 
 
-def run_live_suite(evals: list[dict], model: str, out: Path, timeout: int) -> list[dict]:
-    server, port = start_shim(model)
-    endpoint = f"http://127.0.0.1:{port}/v1/chat/completions"
+def run_live_suite(
+    evals: list[dict], model: str, skill_dir: Path, out: Path, timeout: int,
+) -> list[dict]:
+    session_cwd = out / "shim-sessions"
+    session_cwd.mkdir(parents=True, exist_ok=True)
+    server = start_shim(model, session_cwd, timeout)
+    endpoint = f"http://127.0.0.1:{server.server_address[1]}/v1/chat/completions"
     runs: list[dict] = []
     try:
         for eval_def in evals:
@@ -374,37 +488,75 @@ def run_live_suite(evals: list[dict], model: str, out: Path, timeout: int) -> li
             else:
                 config_dir = out / "llm-config"
                 write_env_config(config_dir, endpoint, model, timeout)
-            deterministic = run_detector(fixture, run_dir)
-            result = run_seam(fixture, config_dir, deterministic, run_dir)
+            det_ok, deterministic = run_detector(skill_dir, fixture, run_dir)
+            if not det_ok:
+                runs.append({
+                    "eval": eval_def["id"], "dir": run_dir, "planted": planted,
+                    "status": "detector failed", "expectations": eval_def["expectations"],
+                })
+                print(f"live: eval-{eval_def['id']} DETECTOR FAILED -> {run_dir}")
+                continue
+            rc, stdout, _stderr = run_seam(
+                skill_dir, fixture, config_dir, deterministic, run_dir,
+            )
+            parsed = parse_result(stdout)
             runs.append({
                 "eval": eval_def["id"],
                 "dir": run_dir,
-                "result": json.loads(result.read_text(encoding="utf-8")),
                 "planted": planted,
+                "seam_exit": rc,
+                "result": parsed,
+                "quarantine": quarantine_files(config_dir),
                 "expectations": eval_def["expectations"],
             })
-            status = runs[-1]["result"]["result"].get("status")
-            print(f"live: eval-{eval_def['id']} status={status} -> {run_dir}")
+            status = "unparsed" if parsed is None else (
+                parsed["result"].get("status", "?")
+            )
+            print(f"live: eval-{eval_def['id']} seam_exit={rc} status={status} -> {run_dir}")
     finally:
         server.shutdown()
         server.server_close()
     return runs
 
 
+def _live_status_lines(run: dict) -> list[str]:
+    parsed = run.get("result")
+    if not parsed:
+        return [f"- Seam exit: {run.get('seam_exit')} (result did not parse)"]
+    result = parsed["result"]
+    lines = [f"- Assessment status: {result.get('status')}"]
+    reason = result.get("reason")
+    if reason:
+        lines.append(f"- Reason: {reason}")
+    violation = parsed.get("metadata", {}).get("violation_rule")
+    if violation:
+        lines.append(f"- Violation rule: {violation}")
+    if run.get("quarantine"):
+        lines.append(f"- Quarantine files: {', '.join(run['quarantine'])}")
+    return lines
+
+
 def write_index(out: Path, runs: list[dict]) -> Path:
     lines = ["# OpenCode eval run evidence", ""]
     for run in runs:
-        lines += [f"## Eval {run['eval']} ({run.get('condition', 'live')})",
+        condition = run.get("condition", "live")
+        lines += [f"## Eval {run['eval']} ({condition})",
                   f"- Output dir: `{run['dir']}`"]
         if run.get("planted"):
-            lines += [f"- Planted file: {run['planted']}"]
-        result = run.get("result")
-        if result:
-            status = result["result"].get("status")
-            lines += [f"- Assessment status: {status}"]
-        lines += ["- Expectations (score by reading the output dir):"]
+            lines.append(f"- Planted file: {run['planted']}")
+        if "ok" in run:
+            lines.append(f"- Session: {'ok' if run['ok'] else 'FAILED — see transcript-raw.txt'}")
+        if "status" in run and "ok" not in run:
+            lines.append(f"- Detector: {run['status']}")
+        lines += _live_status_lines(run)
+        lines.append("- Expectations (score by reading the output dir):")
         lines += [f"  {i+1}. {text}" for i, text in enumerate(run["expectations"])]
-        lines += [""]
+        lines.append("")
+    lines.append(
+        "Infrastructure failures are recorded, never treated as a completed "
+        "run: a session or seam that did not exit clean is marked FAILED or "
+        "unparsed above."
+    )
     index = out / "INDEX.md"
     index.write_text("\n".join(lines), encoding="utf-8")
     return index
@@ -412,21 +564,37 @@ def write_index(out: Path, runs: list[dict]) -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    out = Path(args.out) if args.out else Path(tempfile.mkdtemp(prefix="qg-opencode-evals-"))
+    preflight()
+    out = Path(args.out).resolve() if args.out else Path(
+        tempfile.mkdtemp(prefix="qg-opencode-evals-")
+    )
     out.mkdir(parents=True, exist_ok=True)
-    suite_ids = {"fixtures": [0, 1, 2, 3, 4], "live": [5, 6, 7],
-                 "all": [0, 1, 2, 3, 4, 5, 6, 7]}[args.suite]
-    ids = [int(x) for x in args.evals.split(",") if x.strip()] or suite_ids
+    ids = [int(x) for x in args.evals.split(",") if x.strip()] or list(SUITE_IDS[args.suite])
+    if args.suite != "all":
+        validate_selection(args.suite, ids)
+    skill_dir = Path(args.skill_dir).resolve()
     runs: list[dict] = []
     if args.suite in ("fixtures", "all"):
-        fixture_ids = [i for i in ids if i <= 4]
-        runs += run_fixtures_suite(
-            load_evals(fixture_ids), args.model, Path(args.skill_dir), out,
-            args.timeout, args.baseline_ref,
-        )
+        fixture_ids = [i for i in ids if i in SUITE_IDS["fixtures"]]
+        if fixture_ids:
+            runs += run_fixtures_suite(
+                load_evals(fixture_ids), args.model, skill_dir, out,
+                args.timeout, args.baseline_ref,
+            )
     if args.suite in ("live", "all"):
-        live_ids = [i for i in ids if i >= 5]
-        runs += run_live_suite(load_evals(live_ids), args.model, out, args.timeout)
+        live_ids = [i for i in ids if i in SUITE_IDS["live"]]
+        if live_ids:
+            runs += run_live_suite(
+                load_evals(live_ids), args.model, skill_dir, out, args.timeout,
+            )
+    if not runs:
+        raise SystemExit("error: nothing selected; check --suite and --evals")
+    if args.baseline_ref == "HEAD":
+        print(
+            "warning: --baseline-ref HEAD compares the committed tree with "
+            "itself; use a ref that actually differs (e.g. main before the change)",
+            file=sys.stderr,
+        )
     index = write_index(out, runs)
     print(f"\nIndex for human scoring: {index}")
     return 0

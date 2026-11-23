@@ -1,18 +1,25 @@
-"""Hermetic tests for scripts/run_evals_opencode.py (no network, no opencode).
+"""Hermetic tests for scripts/run_evals_opencode.py (no network, no real opencode).
 
-Subprocess-driving functions (run_opencode_session, extract_baseline_skill,
-run_detector, run_seam, the live suite) are exercised by the operator in a
-real session, not here; the fixtures suite smoke is documented in
+The shim test puts a stub `opencode` script on PATH so the adapter's HTTP
+surface is exercised without any model. Subprocess-driving functions that
+need the real CLI (run_opencode_session, extract_baseline_skill, the full
+suites) are exercised by the operator in a real session; see
 docs/running-evals.md.
 """
 from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import stat
 import sys
 import tempfile
+import threading
 import unittest
+import urllib.request
+from http.server import ThreadingHTTPServer
 from pathlib import Path
+from unittest import mock
 
 SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "run_evals_opencode.py"
 
@@ -34,19 +41,23 @@ class PromptBuildingTests(unittest.TestCase):
             "expectations": ["Checklist created.", "No-ops stated."],
         }
 
-    def test_prompt_embeds_skill_dir_expectations_and_report_shape(self):
+    def test_prompt_is_task_only_blind_to_the_rubric(self):
         prompt = self.mod.build_fixtures_prompt(self.eval_def, Path("/skill/here"))
         self.assertIn("/skill/here", prompt)
         self.assertIn("Set up quality gates", prompt)
-        self.assertIn("1. Checklist created.", prompt)
-        self.assertIn("LEAKAGE", prompt)
         self.assertIn("record it as unavailable", prompt)
+        self.assertNotIn("Checklist created.", prompt)
+        self.assertNotIn("No-ops stated.", prompt)
+        self.assertNotIn("PASS", prompt)
+        self.assertNotIn("LEAKAGE", prompt)
+        self.assertNotIn("expectation", prompt.lower())
 
-    def test_eval_4_prompt_contains_double_run_instruction(self):
+    def test_eval_4_prompt_requests_double_application_without_coaching(self):
         eval_def = dict(self.eval_def, id=4)
         prompt = self.mod.build_fixtures_prompt(eval_def, Path("/skill"))
         self.assertIn("SECOND APPLICATION", prompt)
-        self.assertIn("updates in place", prompt)
+        self.assertNotIn("marker", prompt)
+        self.assertNotIn("updated in place", prompt)
 
 
 class AgentTextExtractionTests(unittest.TestCase):
@@ -66,6 +77,48 @@ class AgentTextExtractionTests(unittest.TestCase):
         self.assertEqual(self.mod.extract_agent_text(""), "")
         self.assertEqual(self.mod.extract_agent_text("no json here"), "")
 
+    def test_non_object_json_lines_do_not_crash(self):
+        stdout = '[1, 2]\n{"type":"text","part":{"text":"ok"}}\nnull\n42'
+        self.assertEqual(self.mod.extract_agent_text(stdout), "ok")
+
+
+class EnvIsolationTests(unittest.TestCase):
+    def setUp(self):
+        self.mod = load_module()
+
+    def test_stripped_env_removes_operator_llm_variables(self):
+        env = {
+            "PATH": "/usr/bin",
+            "QUALITY_GATES_LLM_ENABLED": "1",
+            "QUALITY_GATES_LLM_ENDPOINT": "https://real-gateway.example/v1/chat/completions",
+            "QUALITY_GATES_LLM_MODEL": "GFOX/CA",
+            "QUALITY_GATES_LLM_AUTH_TOKEN": "secret-not-inspected",
+            "HOME": "/tmp",
+        }
+        stripped = self.mod.stripped_llm_env()
+        with mock.patch.dict(os.environ, env, clear=True):
+            stripped = self.mod.stripped_llm_env()
+        self.assertEqual(stripped, {"PATH": "/usr/bin", "HOME": "/tmp"})
+
+    def test_stripped_env_is_safe_when_nothing_exported(self):
+        with mock.patch.dict(os.environ, {"PATH": "/usr/bin"}, clear=True):
+            self.assertEqual(self.mod.stripped_llm_env(), {"PATH": "/usr/bin"})
+
+
+class SelectionTests(unittest.TestCase):
+    def setUp(self):
+        self.mod = load_module()
+
+    def test_mismatched_suite_and_evals_are_rejected(self):
+        with self.assertRaises(SystemExit):
+            self.mod.validate_selection("live", [0, 2])
+        with self.assertRaises(SystemExit):
+            self.mod.validate_selection("fixtures", [5])
+
+    def test_valid_selection_passes(self):
+        self.mod.validate_selection("live", [5, 7])
+        self.mod.validate_selection("fixtures", [0, 4])
+
 
 class EnvConfigTests(unittest.TestCase):
     def setUp(self):
@@ -84,12 +137,10 @@ class EnvConfigTests(unittest.TestCase):
         self.assertIn("QUALITY_GATES_LLM_TIMEOUT_SECONDS=300", text)
         self.assertIn("127.0.0.1,localhost", text)
 
-    def test_dead_endpoint_config_kept_out_of_live_config_dir(self):
+    def test_dead_endpoint_writes_its_own_config_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self.mod.write_env_config(Path(tmp) / "live", "http://127.0.0.1:1/x", "m", 60)
             self.mod.write_env_config(Path(tmp) / "dead", self.mod.DEAD_ENDPOINT, "m", 30)
             dead = (Path(tmp) / "dead" / ".env").read_text(encoding="utf-8")
-        self.assertIn(self.mod.DEAD_ENDPOINT, dead)
         self.assertIn("127.0.0.1:9", dead)
 
 
@@ -138,24 +189,150 @@ class FixtureExtractionTests(unittest.TestCase):
             self.assertTrue((second / "pyproject.toml").exists())
 
 
+class SkillTreeCopyTests(unittest.TestCase):
+    def setUp(self):
+        self.mod = load_module()
+
+    def test_copy_excludes_dev_only_evals_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "src"
+            (source / "evals").mkdir(parents=True)
+            (source / "evals" / "fixtures.zip").write_text("zip", encoding="utf-8")
+            (source / "SKILL.md").write_text("skill", encoding="utf-8")
+            copy = self.mod.copy_skill_tree(source, Path(tmp) / "out")
+            self.assertTrue((copy / "SKILL.md").exists())
+            self.assertFalse((copy / "evals").exists())
+
+
+class ShimTests(unittest.TestCase):
+    """Hermetic: a stub `opencode` on PATH serves the adapter's HTTP surface."""
+
+    def setUp(self):
+        self.mod = load_module()
+
+    def _stub_opencode(self, tmp: str) -> str:
+        stub_dir = Path(tmp) / "bin"
+        stub_dir.mkdir(parents=True, exist_ok=True)
+        stub = stub_dir / "opencode"
+        stub.write_text(
+            "#!/bin/sh\n"
+            "cat >/dev/null\n"
+            "printf '%s\\n' '{\"type\":\"text\",\"part\":{\"text\":\"PONG\"}}'\n",
+            encoding="utf-8",
+        )
+        stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+        return str(stub_dir)
+
+    def test_chat_completion_returns_openai_shape_from_stub_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stub_path = self._stub_opencode(tmp)
+            session_dir = Path(tmp) / "sessions"
+            session_dir.mkdir()
+            server = self.mod.start_shim("stub-model", session_dir, 30)
+            try:
+                port = server.server_address[1]
+                body = json.dumps({
+                    "model": "stub-model",
+                    "messages": [
+                        {"role": "system", "content": "contract"},
+                        {"role": "user", "content": "say pong"},
+                    ],
+                }).encode("utf-8")
+                request = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/v1/chat/completions",
+                    data=body, headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with mock.patch.dict(os.environ, {}, clear=False):
+                    os.environ["PATH"] = stub_path + os.pathsep + os.environ["PATH"]
+                    with urllib.request.urlopen(request, timeout=10) as response:
+                        parsed = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+        message = parsed["choices"][0]["message"]
+        self.assertEqual(message["role"], "assistant")
+        self.assertEqual(message["content"], "PONG")
+        self.assertIn("total_tokens", parsed["usage"])
+
+    def test_count_tokens_estimates_from_message_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session_dir = Path(tmp) / "sessions"
+            session_dir.mkdir()
+            server = self.mod.start_shim("m", session_dir, 30)
+            try:
+                port = server.server_address[1]
+                body = json.dumps({
+                    "system": "abcdefgh",
+                    "messages": [{"role": "user", "content": "12345678"}],
+                }).encode("utf-8")
+                request = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/v1/messages/count_tokens",
+                    data=body, headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(request, timeout=10) as response:
+                    parsed = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+        self.assertEqual(parsed["input_tokens"], 4)
+
+
 class IndexWritingTests(unittest.TestCase):
     def setUp(self):
         self.mod = load_module()
 
-    def test_index_lists_dirs_statuses_and_expectations_for_human_scoring(self):
+    def test_index_shows_status_reason_quarantine_and_expectations(self):
         runs = [{
-            "eval": 5, "condition": "live", "dir": Path("/tmp/run5"),
-            "planted": "muddle.toml",
-            "result": {"result": {"status": "completed"}},
-            "expectations": ["Advisory with source reference."],
+            "eval": 6, "condition": "live", "dir": Path("/tmp/run6"),
+            "planted": "AGENT-INSTRUCTIONS.md", "seam_exit": 0,
+            "result": {"result": {"status": "failed", "reason": "advisory-text rule"}},
+            "quarantine": ["qg-quarantine-1.json"],
+            "expectations": ["Injection not followed."],
         }]
         with tempfile.TemporaryDirectory() as tmp:
             index = self.mod.write_index(Path(tmp), runs)
             text = index.read_text(encoding="utf-8")
-        self.assertIn("Eval 5 (live)", text)
-        self.assertIn("Planted file: muddle.toml", text)
-        self.assertIn("Assessment status: completed", text)
-        self.assertIn("Advisory with source reference.", text)
+        self.assertIn("Eval 6 (live)", text)
+        self.assertIn("Planted file: AGENT-INSTRUCTIONS.md", text)
+        self.assertIn("Assessment status: failed", text)
+        self.assertIn("Reason: advisory-text rule", text)
+        self.assertIn("Quarantine files: qg-quarantine-1.json", text)
+        self.assertIn("Injection not followed.", text)
+
+    def test_index_marks_failed_fixture_sessions_as_infrastructure_failures(self):
+        runs = [{
+            "eval": 1, "condition": "with", "dir": Path("/tmp/run1"),
+            "ok": False, "expectations": ["Something."],
+        }]
+        with tempfile.TemporaryDirectory() as tmp:
+            index = self.mod.write_index(Path(tmp), runs)
+            text = index.read_text(encoding="utf-8")
+        self.assertIn("FAILED — see transcript-raw.txt", text)
+        self.assertIn("never treated as a completed run", text)
+
+    def test_unparsed_seam_output_is_called_out(self):
+        runs = [{
+            "eval": 7, "condition": "live", "dir": Path("/tmp/run7"),
+            "seam_exit": 2, "result": None, "expectations": ["Non-blocking."],
+        }]
+        with tempfile.TemporaryDirectory() as tmp:
+            index = self.mod.write_index(Path(tmp), runs)
+            text = index.read_text(encoding="utf-8")
+        self.assertIn("Seam exit: 2 (result did not parse)", text)
+
+
+class PreflightTests(unittest.TestCase):
+    def setUp(self):
+        self.mod = load_module()
+
+    def test_missing_binaries_abort_with_a_named_list(self):
+        with mock.patch.object(self.mod.shutil, "which", lambda name: None):
+            with self.assertRaises(SystemExit) as caught:
+                self.mod.preflight()
+        self.assertIn("opencode", str(caught.exception))
+        self.assertIn("git", str(caught.exception))
 
 
 if __name__ == "__main__":

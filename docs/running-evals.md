@@ -123,7 +123,7 @@ Iteration N result: eval-0 (X/Y) + eval-1 (X/Y) + eval-2 (X/Y) + eval-3 (X/Y) + 
 
 ---
 
-## Running evals from scratch (no skill-creator available)
+## Running evals from scratch (no skill-creator, no OpenCode runner)
 
 If skill-creator is not available, the evals can be run manually in a limited
 fashion:
@@ -133,7 +133,8 @@ fashion:
 3. Report pass or fail for each expectation.
 
 This approach does not produce a pass-rate summary, but it is sufficient to
-validate the skill's behaviour before packaging or sharing.
+validate the skill's behaviour before packaging or sharing. For an automated
+local run, prefer the OpenCode CLI runner above.
 
 ## Running via the OpenCode CLI (local, no skill-creator)
 
@@ -146,8 +147,11 @@ with `--model`) and local `git`:
 # fixture copies; transcripts and modified trees are saved for scoring.
 python3 scripts/run_evals_opencode.py --suite fixtures
 
-# Same, compared against a baseline ref (with/without a change):
-python3 scripts/run_evals_opencode.py --suite fixtures --baseline-ref HEAD
+# Same, compared against a baseline ref (with/without a change). Use a ref
+# that actually differs from the working tree — for an uncommitted change
+# that is HEAD, for a committed one it is the pre-change branch tip (the
+# runner warns if you name HEAD):
+python3 scripts/run_evals_opencode.py --suite fixtures --baseline-ref main
 
 # Live assessment evals 5-7: the real seam against a built-in local
 # OpenAI-compatible shim serving the chosen OpenCode model.
@@ -156,16 +160,32 @@ python3 scripts/run_evals_opencode.py --suite live --model opencode/big-pickle
 
 Eval-5's unfamiliar-tool fixture and eval-6's injection document are
 planted automatically; eval-7 points the seam at a dead endpoint and must
-record the assessment as non-blocking. Scoring stays human: the runner
-writes an `INDEX.md` listing every run's output dir, assessment status, and
-the eval's expectations; read the output dirs and score them. No LLM judge,
-per repo policy.
+record the assessment as non-blocking. Fixture sessions are blind — they
+see the task only, never the expectations — and run against a copy of the
+skill tree, never the live checkout. The seam's operator environment is
+stripped before each live run, so an exported `QUALITY_GATES_LLM_*` config
+cannot redirect the evals to a real gateway. Sessions and seam runs that
+exit non-zero are recorded as failures in `INDEX.md`, never as completed
+runs. Scoring stays human: the index lists every run's output dir,
+assessment status, reasons, quarantine files, and the eval's expectations;
+read the output dirs and score them.
+
+Known approximation: the shim serves an OpenCode agent session, not a raw
+completion endpoint, so caller temperature and token budgets are not
+forwarded, and tool approval is refused only by running in a dedicated
+empty directory. The seam's own validator remains the trust boundary for
+whatever text comes back, and eval-6's fail-closed path (injection reported
+as untrusted material, quarantine, unchanged deterministic review) exercises
+exactly that.
 
 Verified 2026-11-23 against `opencode/big-pickle`: eval-5 completed with
-the planted tool flagged and source-referenced; eval-6 failed closed with
-the injection reported as untrusted material rather than followed; eval-7
-recorded `unavailable` with the deterministic review intact; a
-fixtures-suite smoke (eval-2) passed 6/6 with no leakage.
+the planted tool flagged and source-referenced; eval-7 recorded
+`unavailable` with the deterministic review intact; a blind fixtures-suite
+run (eval-2) produced the checklist, runner, and managed AGENTS.md block
+with no catalog leakage (scored by reading the output dir, not by the
+session's self-report — the runner asks for facts only). Eval-6's
+fail-closed path was verified in the same day's manual run of the identical
+scenario; it is planted and runnable here via `--suite live --evals 6`.
 
 ---
 
@@ -190,7 +210,9 @@ fixtures have not been extracted. Re-run the unzip command above.
 
 ### skill-creator unavailable
 
-Without skill-creator, behavioural evals cannot be run in an automated fashion.
+Without skill-creator, behavioural evals can still run locally in automated
+fashion via `scripts/run_evals_opencode.py` (see above), or manually as
+described in the fallback section.
 Use the manual fallback in the section above, or install skill-creator first.
 
 ---

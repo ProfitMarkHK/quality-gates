@@ -30,6 +30,7 @@ skill/quality-gates/          the packageable skill. This directory contains the
 scripts/                      standalone tooling for this repo (no agent session required)
   validate_skill.py           structural check: frontmatter, size, that Resources links resolve
   package_skill.py            zips skill/quality-gates/ into dist/quality-gates.skill
+  run_evals_opencode.py       runs the behavioural eval suite via the OpenCode CLI (see docs/running-evals.md)
 dist/                         packaging output (gitignored)
 ```
 

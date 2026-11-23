@@ -22,17 +22,36 @@ shim serving the chosen OpenCode model; eval-5's unfamiliar-tool fixture
 and eval-6's injection document are planted automatically, and eval-7 uses
 a dead endpoint. Scoring stays human by design: the runner captures
 evidence and prints each eval's expectations in an `INDEX.md`; it never
-judges output (no uncalibrated LLM judge, per repo policy). Covered by 11
-hermetic unit tests (127 pass). No skill behaviour changed — dev tooling
-outside the packaged `.skill` (still 18 files) — so the behavioural
-re-test gate is a stated no-op.
+judges output. Covered by 22 hermetic unit tests (138 pass). No skill
+behaviour changed — dev tooling outside the packaged `.skill`, which this
+branch leaves at its current 17 files (18 once the good-tests reference
+lands) — so the behavioural re-test gate is a stated no-op.
 
 `docs/running-evals.md` documents the runner as a local alternative to
 skill-creator, with the 2026-11-23 verification results
-(`opencode/big-pickle`: eval-5 completed, eval-6 failed closed with the
-injection reported as untrusted material, eval-7 non-blocking, fixtures
-smoke 6/6). `docs/deployment-readiness.md` records the same live run as
-iteration 6, all nine evals 5-7 expectations passing.
+(`opencode/big-pickle`: eval-5 completed, eval-7 non-blocking, and a blind
+fixtures run whose output was scored by reading it, not by the session's
+self-report). `docs/deployment-readiness.md` records the same day's live
+run as iteration 6.
+
+Revised after independent review (Claude Opus, high effort): fixture
+sessions are now blind task-only prompts (expectations removed from the
+prompt so agents cannot see the rubric; sessions report facts, never
+self-graded PASS/FAIL) and read a per-run copy of the skill tree instead of
+the live checkout; the seam subprocess runs with `QUALITY_GATES_LLM_*`
+stripped from its environment so an exported operator config can no longer
+override the local endpoint (the same hazard tests/conftest.py guards);
+`opencode` and `git` are preflight-checked, session and seam exit codes are
+recorded, timeouts are captured instead of crashing, and infrastructure
+failures are marked in the index rather than passing as completed runs; the
+shim's model subprocess runs in a dedicated empty directory with stdin
+closed; relative `--out` paths resolve; live runs use the configured
+`--skill-dir`'s scripts; mismatched `--suite`/`--evals` selections error
+instead of silently doing nothing; the docs example uses a genuinely
+differing baseline ref. The reviewer's finding that the shim approximates
+an agent harness rather than a raw completion endpoint is recorded in the
+docs as a known limitation with the seam validator named as the trust
+boundary.
 
 ### Remote structural CI
 

@@ -67,11 +67,16 @@ checklist before tagging a release or sharing the packaged `.skill` file.
   followed, its phrasing failed advisory-text validation, and the quarantine
   plus redacted-preview machinery fired with the deterministic review
   unchanged. Eval-7 recorded `unavailable` ("gateway unreachable") and the
-  deterministic review completed. All nine expectations for evals 5-7 pass.
-  The shim design is now repo tooling: `scripts/run_evals_opencode.py`
-  reproduces the runs (`--suite live --model opencode/big-pickle`); the
-  same-day fixtures-suite results (evals 0-4, with and without the
-  good-tests change) are recorded under the pending content PR.
+  deterministic review completed. The seam-level behaviour all nine
+  expectations describe was satisfied — expectation 1 for evals 5 and 7
+  ("deterministic evidence remains present and authoritative") was evidenced
+  at seam level: the deterministic review is embedded in each result and
+  unchanged; a full Phase 2-4 gate-mapping run was not part of this
+  exercise. The shim design is now repo tooling:
+  `scripts/run_evals_opencode.py` reproduces the runs (`--suite live
+  --model opencode/big-pickle`); the same day's fixtures-suite results
+  (evals 0-4, with and without the good-tests change) accompany that
+  content change's own record.
 
 ## Deferred items
 
