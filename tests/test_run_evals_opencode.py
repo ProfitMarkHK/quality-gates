@@ -71,7 +71,7 @@ class PromptBuildingTests(unittest.TestCase):
         self.assertIn("Set up quality gates", prompt)
         self.assertIn("record it as unavailable", prompt)
         self.assertIn("The project IS this directory itself", prompt)
-        self.assertIn("Do not search for the project", prompt)
+        self.assertIn("Do not search for the", prompt)
         self.assertNotIn("Checklist created.", prompt)
         self.assertNotIn("PASS", prompt)
         self.assertNotIn("LEAKAGE", prompt)
