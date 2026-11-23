@@ -16,6 +16,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -287,7 +288,8 @@ class IndexWritingTests(unittest.TestCase):
         runs = [{
             "eval": 6, "condition": "live", "dir": Path("/tmp/run6"),
             "planted": "AGENT-INSTRUCTIONS.md", "seam_exit": 0,
-            "result": {"result": {"status": "failed", "reason": "advisory-text rule"}},
+            "result": {"result": {"status": "failed",
+                                  "failure_reason": "advisory-text rule"}},
             "quarantine": ["qg-quarantine-1.json"],
             "expectations": ["Injection not followed."],
         }]
@@ -305,12 +307,17 @@ class IndexWritingTests(unittest.TestCase):
         runs = [{
             "eval": 1, "condition": "with", "dir": Path("/tmp/run1"),
             "ok": False, "expectations": ["Something."],
+        }, {
+            "eval": 2, "condition": "with", "dir": Path("/tmp/run2"),
+            "ok": True, "expectations": ["Something."],
         }]
         with tempfile.TemporaryDirectory() as tmp:
             index = self.mod.write_index(Path(tmp), runs)
             text = index.read_text(encoding="utf-8")
         self.assertIn("FAILED — see transcript-raw.txt", text)
         self.assertIn("never treated as a completed run", text)
+        # A fixtures run must not render the live suite's seam lines.
+        self.assertNotIn("Seam exit", text)
 
     def test_unparsed_seam_output_is_called_out(self):
         runs = [{
@@ -333,6 +340,103 @@ class PreflightTests(unittest.TestCase):
                 self.mod.preflight()
         self.assertIn("opencode", str(caught.exception))
         self.assertIn("git", str(caught.exception))
+
+
+class InfraFailureDetectionTests(unittest.TestCase):
+    def setUp(self):
+        self.mod = load_module()
+
+    def test_failed_fixture_session_counts_as_infra_failure(self):
+        self.assertTrue(self.mod._any_infra_failure([
+            {"ok": True, "expectations": []},
+            {"ok": False, "expectations": []},
+        ]))
+
+    def test_failed_detector_counts_as_infra_failure(self):
+        self.assertTrue(self.mod._any_infra_failure([
+            {"status": "detector failed", "expectations": []},
+        ]))
+
+    def test_seam_failure_or_unparsed_output_counts(self):
+        self.assertTrue(self.mod._any_infra_failure([
+            {"seam_exit": 2, "result": None, "expectations": []},
+        ]))
+        self.assertTrue(self.mod._any_infra_failure([
+            {"seam_exit": 0, "result": None, "expectations": []},
+        ]))
+
+    def test_clean_runs_do_not_count(self):
+        self.assertFalse(self.mod._any_infra_failure([
+            {"ok": True, "expectations": []},
+            {"seam_exit": 0, "result": {"result": {"status": "failed"}},
+             "expectations": []},
+        ]))
+
+
+class SessionFailureTests(unittest.TestCase):
+    """Stub `opencode` variants drive the failure paths hermetically."""
+
+    def setUp(self):
+        self.mod = load_module()
+
+    def _stub(self, tmp: str, body: str) -> str:
+        stub_dir = Path(tmp) / "bin"
+        stub_dir.mkdir(parents=True, exist_ok=True)
+        stub = stub_dir / "opencode"
+        stub.write_text(body, encoding="utf-8")
+        stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+        return str(stub_dir)
+
+    def test_timeout_is_recorded_not_crashed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stub_path = self._stub(tmp, "#!/bin/sh\nsleep 5\n")
+            with tempfile.TemporaryDirectory() as work:
+                with mock.patch.dict(os.environ, {}, clear=False):
+                    os.environ["PATH"] = stub_path + os.pathsep + os.environ["PATH"]
+                    ok, text, raw = self.mod.run_opencode_session(
+                        "m", Path(work), "prompt", timeout=1,
+                    )
+        self.assertFalse(ok)
+        self.assertIn("TIMEOUT after 1s", raw)
+
+    def test_exit_zero_with_no_report_text_is_a_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stub_path = self._stub(tmp, "#!/bin/sh\nexit 0\n")
+            with tempfile.TemporaryDirectory() as work:
+                with mock.patch.dict(os.environ, {}, clear=False):
+                    os.environ["PATH"] = stub_path + os.pathsep + os.environ["PATH"]
+                    ok, text, raw = self.mod.run_opencode_session(
+                        "m", Path(work), "prompt", timeout=10,
+                    )
+        self.assertFalse(ok)
+        self.assertIn("produced no report text", raw)
+
+    def test_shim_reports_500_when_the_model_returns_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stub_path = self._stub(tmp, "#!/bin/sh\nexit 0\n")
+            session_dir = Path(tmp) / "sessions"
+            session_dir.mkdir()
+            server = self.mod.start_shim("m", session_dir, 30)
+            try:
+                port = server.server_address[1]
+                request = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/v1/chat/completions",
+                    data=json.dumps({"model": "m", "messages": [
+                        {"role": "user", "content": "hi"}]}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"}, method="POST",
+                )
+                with mock.patch.dict(os.environ, {}, clear=False):
+                    os.environ["PATH"] = stub_path + os.pathsep + os.environ["PATH"]
+                    try:
+                        urllib.request.urlopen(request, timeout=10)
+                        self.fail("expected HTTP 500")
+                    except urllib.error.HTTPError as response:
+                        self.assertEqual(response.status, 500)
+                        body = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+        self.assertIn("no text", body["error"]["message"])
 
 
 if __name__ == "__main__":

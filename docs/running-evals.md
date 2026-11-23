@@ -148,9 +148,8 @@ with `--model`) and local `git`:
 python3 scripts/run_evals_opencode.py --suite fixtures
 
 # Same, compared against a baseline ref (with/without a change). Use a ref
-# that actually differs from the working tree — for an uncommitted change
-# that is HEAD, for a committed one it is the pre-change branch tip (the
-# runner warns if you name HEAD):
+# that actually differs from the tree you are testing: HEAD for an
+# uncommitted change, the pre-change branch tip for a committed one.
 python3 scripts/run_evals_opencode.py --suite fixtures --baseline-ref main
 
 # Live assessment evals 5-7: the real seam against a built-in local
@@ -172,11 +171,13 @@ read the output dirs and score them.
 
 Known approximation: the shim serves an OpenCode agent session, not a raw
 completion endpoint, so caller temperature and token budgets are not
-forwarded, and tool approval is refused only by running in a dedicated
-empty directory. The seam's own validator remains the trust boundary for
-whatever text comes back, and eval-6's fail-closed path (injection reported
-as untrusted material, quarantine, unchanged deterministic review) exercises
-exactly that.
+forwarded, and no tool-less agent is guaranteed available across OpenCode
+installs — the dedicated empty directory gives the model nothing to read or
+act on, but a directory refuses no tools and the child inherits the
+ambient environment (it needs OpenCode auth). The seam's own validator
+remains the trust boundary for whatever text comes back, and eval-6's
+fail-closed path (injection reported as untrusted material, quarantine,
+unchanged deterministic review) exercises exactly that.
 
 Verified 2026-11-23 against `opencode/big-pickle`: eval-5 completed with
 the planted tool flagged and source-referenced; eval-7 recorded

@@ -229,14 +229,23 @@ def run_opencode_session(
             cwd=str(cwd), capture_output=True, text=True,
             stdin=subprocess.DEVNULL, timeout=timeout,
         )
-    except subprocess.TimeoutExpired:
-        return False, "", f"TIMEOUT after {timeout}s"
-    raw = proc.stdout + proc.stderr
-    if proc.returncode != 0:
-        return False, extract_agent_text(proc.stdout), (
-            f"opencode exited {proc.returncode}\n{raw}"
+    except subprocess.TimeoutExpired as exc:
+        partial = exc.stdout if isinstance(exc.stdout, str) else ""
+        if isinstance(exc.stdout, bytes):
+            partial = exc.stdout.decode("utf-8", errors="replace")
+        return False, extract_agent_text(partial or ""), (
+            f"TIMEOUT after {timeout}s (partial output preserved in "
+            "transcript-raw.txt)\n{partial}"
         )
-    return True, extract_agent_text(proc.stdout), raw
+    raw = proc.stdout + proc.stderr
+    agent_text = extract_agent_text(proc.stdout)
+    if proc.returncode != 0:
+        return False, agent_text, f"opencode exited {proc.returncode}\n{raw}"
+    if not agent_text.strip():
+        return False, agent_text, (
+            "opencode exited 0 but produced no report text\n" + raw
+        )
+    return True, agent_text, raw
 
 
 def extract_agent_text(stdout: str) -> str:
@@ -257,7 +266,13 @@ def extract_agent_text(stdout: str) -> str:
 
 
 def extract_baseline_skill(ref: str, dest: Path) -> Path:
-    """git archive the skill at ref into dest; return the skill dir."""
+    """git archive the skill at ref into dest; return the skill dir.
+
+    The dev-only evals/ directory (including evals.json, the rubric) is
+    removed after extraction so the baseline arm sees exactly what the
+    with arm's copy sees; otherwise only baseline sessions could read the
+    expectations and the comparison would skew.
+    """
     archive = subprocess.run(
         ["git", "archive", ref, "skill/quality-gates"],
         cwd=str(REPO_ROOT), capture_output=True, check=True,
@@ -265,6 +280,7 @@ def extract_baseline_skill(ref: str, dest: Path) -> Path:
     skill_dir = dest / "skill" / "quality-gates"
     skill_dir.mkdir(parents=True, exist_ok=True)
     subprocess.run(["tar", "-x", "-C", str(dest)], input=archive.stdout, check=True)
+    shutil.rmtree(skill_dir / "evals", ignore_errors=True)
     return skill_dir
 
 
@@ -328,21 +344,16 @@ def parse_result(text: str) -> dict | None:
     return parsed if isinstance(parsed, dict) else None
 
 
-def quarantine_files(config_dir: Path) -> list[str]:
-    quarantine = config_dir / "quarantine"
-    if not quarantine.is_dir():
-        return []
-    return sorted(p.name for p in quarantine.iterdir() if p.is_file())
-
-
 class ShimHandler(BaseHTTPRequestHandler):
     """OpenAI-compatible adapter over an OpenCode CLI model. Local only.
 
     The subprocess runs in a dedicated, empty session directory with stdin
-    closed, so the assessment model is never pointed at the repository and
-    has nothing to act on even if it tries. Known approximation: `opencode
-    run` is an agent harness, not a raw completion endpoint, so temperature
-    and token budgets of the caller are not forwarded; the seam's own
+    closed, so the assessment model has nothing to read and nothing to act
+    on. Known approximations, stated plainly: `opencode run` is an agent
+    harness, not a raw completion endpoint — no tool-less agent is
+    guaranteed available across OpenCode installs, so tools are not claimed
+    to be disabled; a cwd refuses nothing by itself. The environment is
+    inherited (the model needs ambient OpenCode auth). The seam's own
     validator remains the trust boundary for whatever text comes back.
     """
 
@@ -419,6 +430,11 @@ class ShimHandler(BaseHTTPRequestHandler):
             cwd=self.session_cwd, capture_output=True, text=True,
             stdin=subprocess.DEVNULL, timeout=self.timeout,
         )
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"model subprocess exited {proc.returncode}; "
+                f"stderr tail: {proc.stderr[-300:]}"
+            )
         return extract_agent_text(proc.stdout)
 
     def log_message(self, fmt: str, *args) -> None:
@@ -471,28 +487,32 @@ def run_fixtures_suite(
 def run_live_suite(
     evals: list[dict], model: str, skill_dir: Path, out: Path, timeout: int,
 ) -> list[dict]:
-    session_cwd = out / "shim-sessions"
-    session_cwd.mkdir(parents=True, exist_ok=True)
-    server = start_shim(model, session_cwd, timeout)
-    endpoint = f"http://127.0.0.1:{server.server_address[1]}/v1/chat/completions"
     runs: list[dict] = []
+    server = None
     try:
         for eval_def in evals:
+            session_cwd = out / f"shim-sessions-eval-{eval_def['id']}"
+            session_cwd.mkdir(parents=True, exist_ok=True)
+            if server is None:
+                server = start_shim(model, session_cwd, timeout)
+            endpoint = (
+                f"http://127.0.0.1:{server.server_address[1]}/v1/chat/completions"
+            )
             run_dir = out / f"eval-{eval_def['id']}-live"
             run_dir.mkdir(parents=True, exist_ok=True)
             fixture = extract_fixture("py-service", run_dir)
             planted = plant_scenario_file(eval_def["id"], fixture)
+            config_dir = out / f"llm-config-eval-{eval_def['id']}"
             if eval_def["id"] == 7:
-                config_dir = out / "llm-config-dead"
                 write_env_config(config_dir, DEAD_ENDPOINT, model, min(timeout, 30))
             else:
-                config_dir = out / "llm-config"
                 write_env_config(config_dir, endpoint, model, timeout)
             det_ok, deterministic = run_detector(skill_dir, fixture, run_dir)
             if not det_ok:
                 runs.append({
                     "eval": eval_def["id"], "dir": run_dir, "planted": planted,
-                    "status": "detector failed", "expectations": eval_def["expectations"],
+                    "status": "detector failed",
+                    "expectations": eval_def["expectations"],
                 })
                 print(f"live: eval-{eval_def['id']} DETECTOR FAILED -> {run_dir}")
                 continue
@@ -506,7 +526,10 @@ def run_live_suite(
                 "planted": planted,
                 "seam_exit": rc,
                 "result": parsed,
-                "quarantine": quarantine_files(config_dir),
+                "quarantine": [
+                    str(p)
+                    for p in (config_dir / "quarantine").glob("*") if p.is_file()
+                ],
                 "expectations": eval_def["expectations"],
             })
             status = "unparsed" if parsed is None else (
@@ -514,8 +537,9 @@ def run_live_suite(
             )
             print(f"live: eval-{eval_def['id']} seam_exit={rc} status={status} -> {run_dir}")
     finally:
-        server.shutdown()
-        server.server_close()
+        if server is not None:
+            server.shutdown()
+            server.server_close()
     return runs
 
 
@@ -525,7 +549,7 @@ def _live_status_lines(run: dict) -> list[str]:
         return [f"- Seam exit: {run.get('seam_exit')} (result did not parse)"]
     result = parsed["result"]
     lines = [f"- Assessment status: {result.get('status')}"]
-    reason = result.get("reason")
+    reason = result.get("failure_reason") or result.get("reason")
     if reason:
         lines.append(f"- Reason: {reason}")
     violation = parsed.get("metadata", {}).get("violation_rule")
@@ -548,18 +572,32 @@ def write_index(out: Path, runs: list[dict]) -> Path:
             lines.append(f"- Session: {'ok' if run['ok'] else 'FAILED — see transcript-raw.txt'}")
         if "status" in run and "ok" not in run:
             lines.append(f"- Detector: {run['status']}")
-        lines += _live_status_lines(run)
+        if "seam_exit" in run:
+            lines += _live_status_lines(run)
         lines.append("- Expectations (score by reading the output dir):")
         lines += [f"  {i+1}. {text}" for i, text in enumerate(run["expectations"])]
         lines.append("")
     lines.append(
         "Infrastructure failures are recorded, never treated as a completed "
         "run: a session or seam that did not exit clean is marked FAILED or "
-        "unparsed above."
+        "unparsed above, and the runner exits non-zero when any run failed."
     )
     index = out / "INDEX.md"
     index.write_text("\n".join(lines), encoding="utf-8")
     return index
+
+
+def _any_infra_failure(runs: list[dict]) -> bool:
+    for run in runs:
+        if "ok" in run and not run["ok"]:
+            return True
+        if "status" in run and "ok" not in run:
+            return True
+        if run.get("result") is None and "seam_exit" in run:
+            return True
+        if run.get("seam_exit") not in (None, 0):
+            return True
+    return False
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -589,15 +627,9 @@ def main(argv: list[str] | None = None) -> int:
             )
     if not runs:
         raise SystemExit("error: nothing selected; check --suite and --evals")
-    if args.baseline_ref == "HEAD":
-        print(
-            "warning: --baseline-ref HEAD compares the committed tree with "
-            "itself; use a ref that actually differs (e.g. main before the change)",
-            file=sys.stderr,
-        )
     index = write_index(out, runs)
     print(f"\nIndex for human scoring: {index}")
-    return 0
+    return 1 if _any_infra_failure(runs) else 0
 
 
 if __name__ == "__main__":
