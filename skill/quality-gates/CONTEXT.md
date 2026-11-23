@@ -49,7 +49,7 @@ A gate should apply to this project but cannot currently pass. Test infrastructu
 _Avoid_: missing, TODO, not yet implemented
 
 **runner.**
-The single command that runs every automated gate and exits non-zero on any failure. The runner is the entry point for CI, pre-commit hooks, and merge automation. Gates 4, 5, 9, 10, and 11 require human judgement and do not run through the runner. The instruction-file block enforces them by pointing to the checklist. The runner runs automated gates only.
+The single command that runs every automated gate and exits non-zero on any failure. The runner is the entry point for CI, pre-commit hooks, and merge automation. Gates 4, 4b, 5, 9, 10, 11, and 13 require human judgement and do not run through the runner. The instruction-file block enforces them by pointing to the checklist. The runner runs automated gates only.
 _Avoid_: check command, gate script, all-checks command
 
 **done-done block.**

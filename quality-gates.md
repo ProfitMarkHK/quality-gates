@@ -102,6 +102,36 @@ behaviour rather than just surface-level correctness.
 returns without error, or that a log line contains a string, does not meet this
 threshold.
 
+The standing question for every test: if a realistic bug were introduced,
+would this test fail? A test that would still pass is restating the
+implementation, not testing it. Three smells look like coverage but can pass
+while the behaviour under test is wrong:
+
+- **Circular assertion** — the expected value is computed with the code under
+  test, so both sides move together and a wrong formula passes.
+- **Vacuous pass** — a guard means the real assertion never runs; an empty
+  response passes as success.
+- **Masking fixture** — the fixture never enters the branch under test, so
+  wrong behaviour passes as correct.
+
+### 4b. Implemented state transitions are covered *(if applicable)*
+
+Code that retains state across calls — caches, cursors, retry state, guards,
+dedupe sets, freshness stamps, iteration budgets — implies state machines that
+are rarely declared anywhere. Enumerate the implicit state machines of the new
+or changed code, and enter every transition it implements with a test — or
+state why it is unreachable — especially the failure and edge transitions: a
+rejected request evicted so the next call retries, a runaway-loop guard
+firing, a failed fetch leaving no cache entry, a newer record not downgraded
+by a stale one, duplicates collapsing, an iteration budget honoured. Test
+through observable effects (call counts, recorded arguments, output contents,
+order) when the state itself is not exposed.
+
+A transition in code the change touches that no test enters fails this
+gate. Untested transitions in code the change does not touch are a gap to
+schedule, not a reason to drop the gate. Stateless code makes this gate a
+no-op; state it, and re-audit when code starts retaining state.
+
 ### 5. Documentation is updated
 
 Documentation is kept in sync with the changes made. This includes:
@@ -186,6 +216,35 @@ state this gate as a no-op. If the validator or its package runtime is
 unavailable for a project that contains skills, record a gap with the exact
 missing prerequisite.
 
+### 13. Functional core / imperative shell boundary *(if applicable)*
+
+Domain logic stays unit-testable: I/O effects, wall-clock time, environment
+reads, and randomness live in the shell and are passed into the core as
+arguments. Where the project has a recognizable domain core (pricing, policy,
+validation, decoding, scheduling rules), check that:
+
+- Modules holding domain or policy logic do not import the I/O modules (the
+  HTTP client, the server framework, the process environment).
+- The wall clock, environment, network, and randomness are read in the shell
+  and injected, so every domain rule can be tested deterministically without
+  the real clock or network.
+- External data is decoded once where it enters; downstream logic works on
+  the decoded form, and no handler returns raw external records around the
+  decoder.
+
+This is a judgement gate, enforced by the checklist rather than a runner
+command. The gate applies to any task that adds or changes domain logic, or
+the modules that carry it. Deciding whether a recognizable domain core
+exists is the same kind of judgement call as Gates 4 and 11 — record the
+state and the reason either way; once the gate applies, the three criteria
+are binary. Projects with no recognizable domain core (script collections,
+thin glue or adapter services) state a no-op with its reason; when the
+question is genuinely unclear, apply the gate and record the uncertainty
+rather than recording a no-op for code you are about to change. A criterion
+violated in code the change touches fails the gate; a violation in code the
+change does not touch is a gap to schedule — extraction or seam work — not a
+blocker on every unrelated small change.
+
 ---
 
 ## Project-specific considerations
@@ -232,7 +291,8 @@ make check          # or: ./scripts/check.sh
 
 The gate runner should produce clear output and exit non-zero on any automated
 failure, so that it can be used in pre-commit hooks and merge automation. Some
-gates, such as test quality, documentation, review, ticket reconciliation, and
+gates, such as test quality, state-transition coverage, the functional core /
+imperative shell boundary, documentation, review, ticket reconciliation, and
 specification alignment, require human judgement and remain checklist items,
 not runner commands.
 

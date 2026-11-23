@@ -6,7 +6,7 @@ must include a reason. A gap should be addressed and tracked. A deferred item is
 optional and never blocks release. Revisit it if conditions change. Use this
 checklist before tagging a release or sharing the packaged `.skill` file.
 
-| # | Check | State after iteration 4 | How |
+| # | Check | State after iteration 5 | How |
 |---|-------|-------------------------|-----|
 | 1 | `SKILL.md` structural validation passes | **Applies. Green.** | `python3 scripts/validate_skill.py` |
 | 2 | Detection script runs cleanly on representative project types | **Applies. Green.** | Evals cover Python, TypeScript, Bash, C, and PowerShell fixtures. Detector tests and a smoke check also pass. |
@@ -15,7 +15,7 @@ checklist before tagging a release or sharing the packaged `.skill` file.
 | 5 | Policy check confirms no examples leak across languages | **Applies. Green.** | Covered by eval-3 and the PowerShell detector tests and smoke check. The safety note followed a near-miss in iteration 2. |
 | 6 | Description trigger accuracy checked with a dedicated eval set | **Deferred. Not blocking.** | The optional skill-creator description optimization loop requires the Claude Code CLI. This project avoids that dependency. Revisit if skill triggering becomes unreliable. |
 | 7 | `CHANGELOG.md` reflects the version being released | **Applies. Confirm per release.** | Update it before tagging. |
-| 8 | Packaged `.skill` produced and smoke-tested | **Applies. Green.** | Run `python3 scripts/package_skill.py`, then inspect `unzip -l dist/quality-gates.skill`. Confirm exactly 14 files, including the LLM assessment reference, gateway execution seam, quarantine ADR-0003, and `.env.example`. Check for stray artifacts. |
+| 8 | Packaged `.skill` produced and smoke-tested | **Applies. Green.** | Run `python3 scripts/package_skill.py`, then inspect `unzip -l dist/quality-gates.skill`. Confirm exactly 18 files, including the good-tests reference, the LLM assessment reference, gateway execution seam, quarantine reader, ADR-0001 through ADR-0005, and `.env.example`. Check for stray artifacts. |
 | 9 | Human review completed before distribution | **Applies. Manual, always required.** | Peer review cannot be automated. Record the review before distribution. |
 | 10 | Security and secrets scan of the skill source | **No-op.** | The skill contains no credentials or tokens. Its standard-library scripts read the pointed-to filesystem and validate or serialize data. They do not make network calls, install tools, or execute target-project commands. |
 | 11 | Skill matches `quality-gates.md` | **Applies. Green. Re-check when either file changes.** | Compare the guidance with `skill/quality-gates/`. |
@@ -55,6 +55,18 @@ checklist before tagging a release or sharing the packaged `.skill` file.
   Runners were tested where their tools were available. A grep found no
   cross-language example leakage. Evals 5 through 7 retain the live gateway
   results from iteration 3 because the later run did not change the executor.
+- **Iteration 5, 2026-11-23.** Evals 0 through 4 re-run in ten blind agent
+  sessions (five with the good-tests/4b/13 change, five against a HEAD
+  baseline archive, fresh fixture copies each). With-skill: 30/30; baseline:
+  30/30; no regression. The new judgement gates behaved as designed: Gate 4b
+  no-op with a stated reason in all four fixtures (stateless code), Gate 13
+  applies with grounded reasons in py-service, web-dashboard, and jsonparser,
+  no-op with the designed reason in backup-scripts. Eval-4 idempotency held
+  (one marker pair, one checklist, block updated in place). The coordinator
+  re-checked marker counts, new-gate rows, and leakage from the new reference
+  text by reading the produced files directly. Packaging verified: exactly 18
+  files. Evals 5 through 7 retain their iteration 3 live-gateway results; this
+  change did not touch the assessment path.
 
 ## Deferred items
 
@@ -70,3 +82,9 @@ checklist before tagging a release or sharing the packaged `.skill` file.
   (strict, enforced for admins too, no force pushes or deletions). No org
   admin was needed — the repo-creator account already holds repo-admin
   rights, so the setting was applied with the normal member account.
+- Add a stateful eval fixture (a small cache or retry state with one
+  deliberately untested failure transition) plus `evals.json` expectations
+  for Gates 4b and 13, so the suite can detect regressions in the judgement
+  gates themselves. Every current fixture is stateless, so 4b only ever
+  records a no-op and the suite would score the same if the gate were
+  deleted.

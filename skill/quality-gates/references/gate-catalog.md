@@ -127,14 +127,60 @@ opt-in companion where a project wants it, never as the default reading of
 
 New code is tested by checks that exercise real behaviour, not surface
 correctness. This gate is about the *quality* of new tests, so it resists a
-single command. Judge it by reading the tests.
+single command. Judge it by reading the tests, against the criteria in
+`references/good-tests.md`.
 
 Non-trivial tests exercise meaningful logic paths, assert on outputs or state
 (not just that a log line appeared or a function returned), and cover edge cases
 and error paths, not only the happy path. A test that asserts only "returns
-without error" does not meet the bar.
+without error" does not meet the bar. The standing question for every test: if
+a realistic bug were introduced, would this test fail? A test that would still
+pass is restating the implementation, not testing it.
 
-- Applies to any task that adds or changes code.
+Three smells look like coverage but can pass while the behaviour under test is
+wrong (each described in `references/good-tests.md`):
+
+- **Circular assertion** — the expected value is computed with the code under
+  test, so both sides move together.
+- **Vacuous pass** — a guard means the real assertion never runs; an empty
+  response passes as success.
+- **Masking fixture** — the fixture never enters the branch under test, so
+  wrong behaviour passes as correct.
+
+- Applies to any task that adds or changes code. When the changed code
+  retains state across calls, also apply Gate 4b.
+
+## 4b. Implemented state transitions are covered *(if applicable)*
+
+The changed code's implicit state machines are enumerated, and every
+transition the code implements — especially failure and edge transitions — is
+either entered by a test or stated as unreachable.
+
+Code that retains state implies state machines that are rarely declared
+anywhere: a cache with hit, miss, and eviction; a cursor that advances and
+terminates; a retry counter; a guard that fires; a dedupe set; a freshness
+stamp; a convergence loop with a budget. The audit method is in
+`references/good-tests.md`.
+
+- Applies when new or changed code retains state across calls (caches,
+  cursors, retry state, guards, dedupe, freshness, iteration budgets).
+- Happy-path transitions are usually covered already; this gate exists for the
+  failure and edge transitions the code explicitly implements — a rejected
+  request evicted so the next call retries, the runaway-loop guard firing, a
+  failed fetch leaving no cache entry, a newer record not downgraded by a
+  stale one, duplicates collapsing, an iteration budget honoured.
+- Test transitions through observable effects when state is not exposed: call
+  counts, recorded arguments, output contents, order.
+- **Fails** when an implemented transition in any code the change touches is
+  entered by no test and shown unreachable by no stated reason. Touching the
+  module means bringing its transitions under test. Fix before done-done.
+- Gap when the audit finds implemented but untested transitions in code the
+  change does not touch: record and schedule them. The gap is work, not a
+  reason to drop the gate.
+- No-op for stateless code (pure functions, stateless handlers). State the
+  no-op so it is not read as an oversight.
+- Judgement gate, like Gates 4, 9, and 11: enforced by the checklist, not the
+  runner.
 
 ## 5. Documentation is updated
 
@@ -222,6 +268,47 @@ exit successfully. If `skills-ref` or its required package runtime is
 unavailable, this is a **gap**, not a no-op. Record the exact prerequisite and
 the affected skill directories. For projects with no `SKILL.md`, this gate is
 a **no-op**.
+
+## 13. Functional core / imperative shell boundary *(if applicable)*
+
+Domain logic stays unit-testable. I/O effects, wall-clock time, environment
+reads, and randomness live in the shell and are passed into the core as
+arguments. When the project has a recognizable domain core (pricing, policy,
+validation, decoding, scheduling rules), check three criteria:
+
+1. **Dependency direction.** Modules holding domain or policy logic do not
+   import the I/O modules — the HTTP client, the server framework, the
+   process environment.
+2. **Nondeterminism behind a seam.** The wall clock, environment, network,
+   and randomness are read in the shell and injected. Every domain rule can
+   be tested deterministically without the real clock or network. This
+   criterion is what makes Gate 4's deterministic tests possible: a domain
+   rule that reads the clock itself can only be tested against the real
+   clock.
+3. **One decode path.** External data is decoded once where it enters; logic
+   downstream works on the decoded form, and no handler returns raw external
+   records around the decoder.
+
+- Applies to any task that adds or changes domain logic, or the modules that
+  carry it. Judgement gate, like Gates 4, 4b, 9, and 11: enforced by the
+  checklist, not the runner. Deciding whether a recognizable domain core
+  exists is the same kind of judgement call as Gates 4 and 11 — record the
+  state and the reason either way. Once the gate applies, the three criteria
+  are binary.
+- No-op for projects with no recognizable domain core: script collections,
+  thin glue or adapter services. State the reason so it is not read as an
+  oversight.
+- **Fails** when a criterion is violated in any code the change touches —
+  new domain logic importing the transport module, a clock read inside the
+  core, records routed around the decoder. Touching the module means fixing
+  it. Fix before done-done.
+- Gap when a violation is found in code the change does not touch: record it
+  and schedule the extraction or seam work. It does not block the current
+  change. When whether a domain core exists is genuinely unclear, apply the
+  gate and record the uncertainty; do not record a no-op for code you are
+  about to change.
+- The three criteria describe patterns detected in the project in front of
+  you, never files or modules carried over from another codebase's example.
 
 ---
 
