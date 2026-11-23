@@ -1,0 +1,49 @@
+# Structural gates for the quality-gates skill. Runs the deterministic,
+# secret-free checks on every push to main and every pull request, so the
+# pushed SHA is verified independently of any local machine.
+#
+# What deliberately does NOT run here: the behavioural eval suite (it needs
+# an agent session; see docs/running-evals.md) and the LLM-assessment evals
+# 5-7 (gateway credentials never enter CI). Those stay local and manual.
+
+name: validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  structural-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Skill structural validation
+        run: python3 scripts/validate_skill.py
+
+      - name: Detector unit tests
+        run: python3 -m unittest discover -s tests
+
+      - name: Agent skill structure validation
+        run: npx --yes skills-ref validate skill/quality-gates
+
+      - name: Packaging smoke test
+        run: |
+          python3 scripts/package_skill.py
+          # The exact file count is a release-time check (deployment-readiness
+          # item 8); the listing below makes drift visible on every run
+          # without failing on an unrelated content PR.
+          unzip -l dist/quality-gates.skill | tail -5

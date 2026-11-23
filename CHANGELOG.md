@@ -6,6 +6,25 @@ tagged release. See `docs/deployment-readiness.md`.
 
 ## Unreleased
 
+### Remote structural CI
+
+A GitHub Actions workflow (`.github/workflows/validate.yml`) now runs the
+deterministic, secret-free gates on every push to `main` and every pull
+request: `scripts/validate_skill.py`, the detector unit tests, `skills-ref
+validate` (via a Node runner, where it is cheaper than maintaining npx
+locally), and a packaging smoke test whose log shows the packaged file list
+on every run — the exact file count remains a release-time check
+(deployment-readiness item 8), not an equality that would go red on `main`
+before an unrelated content PR merges. What deliberately stays local and
+manual: the behavioural evals (agent sessions) and the LLM-assessment
+evals 5-7 (gateway credentials never enter a public repo's CI). This change
+touches no skill behaviour — `SKILL.md`, `references/`, `assets/`, and
+`detect_project.py` are untouched and the packaged `.skill` is
+byte-identical — so the behavioural re-test gate is a stated no-op, not a
+silent skip. The roadmap item "add a CI workflow once a remote exists" is
+cleared; enabling branch protection on `main` (requiring the validate
+checks) remains a GitHub-settings follow-up for an org admin.
+
 ### Documentation prose cleanup
 
 - Rewrote project guidance, skill references, templates, and release notes to

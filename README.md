@@ -75,6 +75,11 @@ would run via the skill-creator skill's own `quick_validate.py` and
 Resources link to a file that does not exist. They cannot tell you whether the
 skill instructions are useful. For that, run step 2 above.
 
+On GitHub, the same structural checks run automatically on every push and
+pull request via `.github/workflows/validate.yml`. The behavioural eval
+suite never runs in CI: it needs an agent session (evals 0-4) and, for
+evals 5-7, gateway credentials that must never enter CI.
+
 ## This repo's own definition of done
 
 See `CLAUDE.md` for this repo's definition of done. A change is complete when
