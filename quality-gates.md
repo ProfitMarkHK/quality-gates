@@ -118,16 +118,19 @@ while the behaviour under test is wrong:
 
 Code that retains state across calls — caches, cursors, retry state, guards,
 dedupe sets, freshness stamps, iteration budgets — implies state machines that
-are rarely declared anywhere. Enumerate them, and enter every transition the
-code implements with a test, especially the failure and edge transitions: a
+are rarely declared anywhere. Enumerate the implicit state machines of the new
+or changed code, and enter every transition it implements with a test — or
+state why it is unreachable — especially the failure and edge transitions: a
 rejected request evicted so the next call retries, a runaway-loop guard
 firing, a failed fetch leaving no cache entry, a newer record not downgraded
 by a stale one, duplicates collapsing, an iteration budget honoured. Test
 through observable effects (call counts, recorded arguments, output contents,
 order) when the state itself is not exposed.
 
-Stateless code makes this gate a no-op; state it. Untested implemented
-transitions are a gap to schedule, not a reason to drop the gate.
+A transition the change itself introduces that no test enters fails this
+gate. Pre-existing untested transitions in code the change does not touch
+are a gap to schedule, not a reason to drop the gate. Stateless code makes
+this gate a no-op; state it.
 
 ### 5. Documentation is updated
 
@@ -230,10 +233,15 @@ validation, decoding, scheduling rules), check that:
   decoder.
 
 This is a judgement gate, enforced by the checklist rather than a runner
-command. Projects with no recognizable domain core (script collections, thin
-glue or adapter services) state a no-op with its reason. A violated criterion
-is a gap to schedule — extraction or seam work — not a blocker on every
-unrelated small change.
+command. The gate applies to any task that adds or changes domain logic, or
+the modules that carry it. Deciding whether a recognizable domain core
+exists is the same kind of judgement call as Gates 4 and 11 — record the
+state and the reason either way; once the gate applies, the three criteria
+are binary. Projects with no recognizable domain core (script collections,
+thin glue or adapter services) state a no-op with its reason. A criterion
+violated by the change itself fails the gate; a pre-existing violation in
+code the change does not touch is a gap to schedule — extraction or seam
+work — not a blocker on every unrelated small change.
 
 ---
 

@@ -129,13 +129,14 @@ choosing. Note two policies it encodes: for C / C++ projects prefer a linter
 named `Clean` when it is available, falling back to `clang-tidy` / `cppcheck`
 only when it is not (and say which you used); and check the implementation
 against any functional or technical specification the project has (gate 11).
-Gate 4's test-quality bar is defined in `references/good-tests.md`. Read that
-reference when judging Gate 4, when Gate 4b (state-transition coverage)
-applies, and when Gate 13 (functional core / imperative shell boundary)
-applies. All three are judgement gates: the checklist enforces them by
-reference, the runner does not run them.
 Look in `docs/`, `spec/`, `specs/`, API schemas, and the tracker. If no spec
 exists, state that as a no-op or a gap rather than ignoring it.
+
+Gate 4's test-quality bar is defined in `references/good-tests.md`. Read
+that reference when judging Gates 4 and 4b (state-transition coverage);
+Gate 13 (functional core / imperative shell boundary) is judged from its
+catalog criteria. All three are judgement gates: the checklist enforces
+them by reference, the runner does not run them.
 
 For agent skill projects (gate 12), run `npx --yes skills-ref validate
 <skill-directory>` once for every detected `SKILL.md` directory. If no agent
@@ -264,7 +265,7 @@ configured is not).
   rule, and what to do when a gate fails. Read in Phase 2.
 - `references/good-tests.md`. The test-quality bar for Gate 4: assertion
   independence, the three failure smells, and the state-transition audit
-  method for Gate 4b. Read when judging Gates 4, 4b, and 13.
+  method for Gate 4b. Read when judging Gates 4 and 4b.
 - `references/agent-instructions.md`. File conventions and idempotent edit
   rules for CLAUDE.md, AGENTS.md, Copilot, and Cursor. Read in Phase 4.
 - `references/llm-assessment.md`. The optional assessment's execution,

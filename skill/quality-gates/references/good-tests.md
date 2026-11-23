@@ -5,13 +5,13 @@ anything. Read it when judging Gate 4 (test quality), when Gate 4b
 (state-transition coverage) applies, and whenever the task adds or changes
 tests.
 
-## The bar every test must clear
+## The bar every unit test must clear
 
 **The assertion must be independent of the implementation.** The standing
 question: if a realistic bug were introduced, would this test fail? A test
 that would still pass is restating the implementation, not testing it.
 
-A good test:
+A good unit test:
 
 - supplies known inputs and asserts exact expected outputs, errors, or side
   effects
@@ -28,6 +28,13 @@ A test that counts calls without asserting what was passed to them proves
 less than it appears to. If the behaviour is "back off with growing delays"
 or "do not fetch again", assert the recorded delays or the recorded call
 count, not merely that the code called something.
+
+Full-task tests (end-to-end, acceptance, smoke) are judged differently:
+they check the final state of the system with ordinary code, assert
+invariants rather than exact step sequences, and may legitimately touch the
+live network or record an explicit skip when the environment has no data.
+The independence question applies to them unchanged; the other criteria on
+this list are unit-test criteria.
 
 ## Three failure smells
 

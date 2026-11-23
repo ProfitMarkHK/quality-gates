@@ -93,6 +93,22 @@ leakage from the new reference text. Packaging re-verified once:
 `references/good-tests.md`. Evals 5-7 (LLM assessment) are untouched by this
 change and retain their iteration 3/4 live-gateway results.
 
+Revised after independent review (Claude Opus, high effort): a violation the
+change itself introduces now **fails** Gates 4b and 13, while pre-existing
+violations in untouched code remain recorded gaps (previously both were
+worded as gaps, so a change could ship its own untested transition); the
+`quality-gates.md` mirrors now define the same gates as the catalog exactly
+(the mirror had dropped 4b's new-or-changed-code scoping, the
+stated-unreachable clause, and Gate 13's trigger); the checklist template's
+4b/13 rows now carry their criteria instead of a bare "manual review";
+`good-tests.md` scopes its bar to unit tests and states how full-task tests
+are judged differently; SKILL.md's Phase 2 insertion no longer splits the
+gate-11 paragraph and no longer points Gate 13 readers at the good-tests
+reference; README lists the new reference. The reviewers' remaining
+finding — no fixture exercises 4b or 13, so the suite cannot detect
+regressions in this change itself — is recorded as roadmap work (a stateful
+fixture with expectations for 4b and 13) rather than silently accepted.
+
 ### Documentation prose cleanup
 
 - Rewrote project guidance, skill references, templates, and release notes to

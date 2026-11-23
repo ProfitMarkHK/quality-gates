@@ -82,3 +82,9 @@ checklist before tagging a release or sharing the packaged `.skill` file.
   (strict, enforced for admins too, no force pushes or deletions). No org
   admin was needed — the repo-creator account already holds repo-admin
   rights, so the setting was applied with the normal member account.
+- Add a stateful eval fixture (a small cache or retry state with one
+  deliberately untested failure transition) plus `evals.json` expectations
+  for Gates 4b and 13, so the suite can detect regressions in the judgement
+  gates themselves. Every current fixture is stateless, so 4b only ever
+  records a no-op and the suite would score the same if the gate were
+  deleted.

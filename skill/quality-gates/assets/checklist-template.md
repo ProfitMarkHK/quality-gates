@@ -31,7 +31,7 @@ project adopts the strict companion).
 | 2 | End-to-end / acceptance tests pass | {{STATE}} | {{DETAIL}} |
 | 3 | Linters / formatters / static analysis pass (incl. complexity ≤ 10, tests excluded) | {{STATE}} | {{DETAIL}} |
 | 4 | New code covered by non-trivial tests | {{STATE}} | manual review |
-| 4b | Implemented state transitions covered | {{STATE}} | manual review |
+| 4b | Implemented state transitions covered | {{STATE}} | manual review — enumerate implicit state machines in changed code; every implemented transition entered by a test or stated unreachable |
 | 5 | Documentation updated | {{STATE}} | manual review |
 | 6 | Type checking passes | {{STATE}} | {{DETAIL}} |
 | 7 | Build / compile succeeds | {{STATE}} | {{DETAIL}} |
@@ -40,7 +40,7 @@ project adopts the strict companion).
 | 10 | Tracker / ticket reconciled | {{STATE}} | manual |
 | 11 | Implementation aligns with functional & technical specs | {{STATE}} | manual review vs {{SPEC_LOCATION}} |
 | 12 | Agent skill structure validates | {{STATE}} | `npx --yes skills-ref validate <skill-directory>` for each detected skill |
-| 13 | Functional core / imperative shell boundary | {{STATE}} | manual review |
+| 13 | Functional core / imperative shell boundary | {{STATE}} | manual review — domain modules import no I/O; clock/env/network injected; one decode path |
 
 State legend: **applies** (must pass), **no-op** (does not apply, reason
 given), **gap** (should apply but not yet possible, tracked as work).

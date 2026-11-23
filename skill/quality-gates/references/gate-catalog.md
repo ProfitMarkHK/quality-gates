@@ -171,10 +171,14 @@ stamp; a convergence loop with a budget. The audit method is in
   stale one, duplicates collapsing, an iteration budget honoured.
 - Test transitions through observable effects when state is not exposed: call
   counts, recorded arguments, output contents, order.
+- **Fails** when the changed code introduces an implemented transition that
+  no test enters and no stated reason shows unreachable. Fix before
+  done-done.
+- Gap when the audit finds pre-existing implemented but untested transitions
+  in code the change does not touch: record and schedule them. The gap is
+  work, not a reason to drop the gate.
 - No-op for stateless code (pure functions, stateless handlers). State the
   no-op so it is not read as an oversight.
-- Gap when the audit finds implemented but untested transitions: schedule the
-  tests. The gap is work, not a reason to drop the gate.
 - Judgement gate, like Gates 4, 9, and 11: enforced by the checklist, not the
   runner.
 
@@ -287,14 +291,19 @@ validation, decoding, scheduling rules), check three criteria:
 
 - Applies to any task that adds or changes domain logic, or the modules that
   carry it. Judgement gate, like Gates 4, 4b, 9, and 11: enforced by the
-  checklist, not the runner.
+  checklist, not the runner. Deciding whether a recognizable domain core
+  exists is the same kind of judgement call as Gates 4 and 11 — record the
+  state and the reason either way. Once the gate applies, the three criteria
+  are binary.
 - No-op for projects with no recognizable domain core: script collections,
   thin glue or adapter services. State the reason so it is not read as an
   oversight.
-- Gap when a criterion is violated (domain logic importing the transport
-  module, the clock read inside the core, records bypassing the decoder):
-  schedule the extraction or seam work. A violation unrelated to the current
-  small change does not block that change; record it and schedule it.
+- **Fails** when the change itself violates a criterion — new domain logic
+  importing the transport module, a clock read added inside the core,
+  records routed around the decoder. Fix before done-done.
+- Gap when a pre-existing violation is found in code the change does not
+  touch: record it and schedule the extraction or seam work. It does not
+  block the current change.
 - The three criteria describe patterns detected in the project in front of
   you, never files or modules carried over from another codebase's example.
 
