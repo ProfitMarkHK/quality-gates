@@ -33,6 +33,29 @@ def load_module():
     return module
 
 
+class ContainmentTests(unittest.TestCase):
+    def setUp(self):
+        self.mod = load_module()
+
+    def test_unchanged_fixture_fails_containment(self):
+        sig = {"CLAUDE.md": 10}
+        self.assertFalse(self.mod.containment_ok(sig, dict(sig)))
+
+    def test_changed_fixture_passes_containment(self):
+        before = {"CLAUDE.md": 10}
+        after = {"CLAUDE.md": 10, "docs/quality-gates.md": 900}
+        self.assertTrue(self.mod.containment_ok(before, after))
+
+    def test_tree_signature_tracks_file_sizes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "a.txt").write_text("hello", encoding="utf-8")
+            (root / "sub").mkdir()
+            (root / "sub" / "b.txt").write_text("x", encoding="utf-8")
+            signature = self.mod.tree_signature(root)
+        self.assertEqual(signature, {"a.txt": 5, "sub/b.txt": 1})
+
+
 class PromptBuildingTests(unittest.TestCase):
     def setUp(self):
         self.mod = load_module()
@@ -47,8 +70,9 @@ class PromptBuildingTests(unittest.TestCase):
         self.assertIn("/skill/here", prompt)
         self.assertIn("Set up quality gates", prompt)
         self.assertIn("record it as unavailable", prompt)
+        self.assertIn("The project IS this directory itself", prompt)
+        self.assertIn("Do not search for the project", prompt)
         self.assertNotIn("Checklist created.", prompt)
-        self.assertNotIn("No-ops stated.", prompt)
         self.assertNotIn("PASS", prompt)
         self.assertNotIn("LEAKAGE", prompt)
         self.assertNotIn("expectation", prompt.lower())

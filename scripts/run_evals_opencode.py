@@ -99,9 +99,11 @@ DEAD_ENDPOINT = "http://127.0.0.1:9/v1/chat/completions"
 
 FIXTURES_PROMPT_HEAD = """\
 You are applying the quality-gates skill to the project in the current
-working directory. Work only within the current working directory: do not
-read, modify, or run commands against files outside it. If the task seems
-to require anything outside this directory, stop and report that instead.
+working directory. The project IS this directory itself — not any folder
+with the same name elsewhere on the machine. Do not search for the
+project. Do not read, modify, or run commands against files outside this
+directory; if the task seems to require anything outside it, stop and
+report that instead.
 The skill package lives at: {skill_dir}
 Read its SKILL.md first and follow it exactly as written for the whole task,
 including the phases that direct you to read files under its references/,
@@ -455,6 +457,26 @@ def start_shim(model: str, session_cwd: Path, timeout: int) -> ThreadingHTTPServ
     return server
 
 
+def tree_signature(root: Path) -> dict[str, int]:
+    """File path -> size for every file under root."""
+    return {
+        str(path.relative_to(root)): path.stat().st_size
+        for path in root.rglob("*")
+        if path.is_file()
+    }
+
+
+def containment_ok(before: dict[str, int], after: dict[str, int]) -> bool:
+    """True when the session changed something inside its fixture.
+
+    The skill always writes a checklist and instruction files, so an
+    unchanged fixture after a session that claimed success means it worked
+    somewhere else on the machine. That is a containment failure, recorded
+    as such rather than passing as evidence.
+    """
+    return before != after
+
+
 def run_fixtures_suite(
     evals: list[dict], model: str, skill_dir: Path, out: Path, timeout: int,
     baseline_ref: str,
@@ -472,7 +494,15 @@ def run_fixtures_suite(
             fixture = extract_fixture(fixture_name, run_dir)
             prompt = build_fixtures_prompt(eval_def, cond_skill_dir.resolve())
             (run_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
+            before = tree_signature(fixture)
             ok, agent_text, raw = run_opencode_session(model, fixture, prompt, timeout)
+            if ok and not containment_ok(before, tree_signature(fixture)):
+                ok = False
+                raw = (
+                    "CONTAINMENT FAILURE: the session reported success but "
+                    "changed no file inside its fixture — it likely worked "
+                    "outside the directory (see transcript).\n" + raw
+                )
             (run_dir / "transcript-raw.txt").write_text(raw, encoding="utf-8")
             (run_dir / "report.md").write_text(agent_text, encoding="utf-8")
             runs.append({

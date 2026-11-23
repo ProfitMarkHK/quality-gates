@@ -170,15 +170,18 @@ assessment status, reasons, quarantine files, and the eval's expectations;
 read the output dirs and score them.
 
 Known limitation, stated after a real incident: fixture sessions run with
-`--auto` and are sandboxed only by their working directory and the prompt's
-stay-in-directory instruction — the model is capable of acting outside it.
-In the first full re-test run, one eval-4 session ignored its fixture and
-applied the skill to the skill's home repository instead (caught by the
-per-run output dirs and the session's own report; the run was voided and
-re-run). If you need a hard guarantee, run the suite under a dedicated
-account or container where nothing outside the output directory is
-reachable. When a baseline arm predates the `evals/` extraction fix, also
-audit the transcripts for rubric reads before trusting the comparison.
+`--auto` and no OpenCode sandbox confines them to a directory — prompts
+alone did not stop two sessions from wandering to the skill's home
+repository, where one found a stray same-named folder left by an earlier
+escape and worked on that instead of its fixture. Two mitigations are now in
+place: the prompt states the project *is* the current directory and forbids
+searching for it, and a mechanical containment check fails any session that
+reports success while changing nothing inside its fixture, so an escape can
+no longer register as a passing run. If you need a hard guarantee, run the
+suite under a dedicated account or container where nothing outside the
+output directory is reachable. When a baseline arm predates the `evals/`
+extraction fix, also audit the transcripts for rubric reads before
+trusting the comparison.
 
 Known approximation: the shim serves an OpenCode agent session, not a raw
 completion endpoint, so caller temperature and token budgets are not
