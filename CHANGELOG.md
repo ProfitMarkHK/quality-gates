@@ -6,6 +6,34 @@ tagged release. See `docs/deployment-readiness.md`.
 
 ## Unreleased
 
+### OpenCode as a local eval provider
+
+New repo dev script `scripts/run_evals_opencode.py` (stdlib only, not part
+of the packaged skill): the behavioural eval suite now runs with OpenCode
+as the model provider, removing the hard dependency on skill-creator plus
+a Claude Code session for local runs. Suite `fixtures` (evals 0-4) applies
+the skill to fresh fixture copies in blind headless `opencode run`
+sessions (`--model` selects any configured model, `--baseline-ref` adds a
+without-change condition via a `git archive` extract, transcripts and
+modified trees preserved for scoring). Suite `live` (evals 5-7) runs the
+advisory assessment through the real seam
+(`llm_assessment_execute.py`) against a built-in local OpenAI-compatible
+shim serving the chosen OpenCode model; eval-5's unfamiliar-tool fixture
+and eval-6's injection document are planted automatically, and eval-7 uses
+a dead endpoint. Scoring stays human by design: the runner captures
+evidence and prints each eval's expectations in an `INDEX.md`; it never
+judges output (no uncalibrated LLM judge, per repo policy). Covered by 11
+hermetic unit tests (127 pass). No skill behaviour changed — dev tooling
+outside the packaged `.skill` (still 18 files) — so the behavioural
+re-test gate is a stated no-op.
+
+`docs/running-evals.md` documents the runner as a local alternative to
+skill-creator, with the 2026-11-23 verification results
+(`opencode/big-pickle`: eval-5 completed, eval-6 failed closed with the
+injection reported as untrusted material, eval-7 non-blocking, fixtures
+smoke 6/6). `docs/deployment-readiness.md` records the same live run as
+iteration 6, all nine evals 5-7 expectations passing.
+
 ### Remote structural CI
 
 A GitHub Actions workflow (`.github/workflows/validate.yml`) now runs the
