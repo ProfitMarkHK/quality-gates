@@ -63,9 +63,10 @@ transitions, all closed with tests that each fail under a named plausible
 bug; a core/shell review found domain modules importing the transport module,
 wall-clock reads inside domain logic, and raw wire records bypassing the
 decoders. All three additions generalize those findings. No fixture, tool, or
-path from that project appears in the skill text (example-leakage rule): the
+project appears in the skill text (example-leakage rule): the
 new prose names only patterns (a cache, a cursor, a guard, an injected clock)
-and says they are illustrations.
+and says they are illustrations; the motivating findings appear only as
+generalized, anonymous stories.
 
 Mirrored per the docs-sync rule: `quality-gates.md` criterion 4 expanded and
 criteria 4b and 13 added; the checklist template's gate table gained rows 4b
@@ -104,10 +105,16 @@ stated-unreachable clause, and Gate 13's trigger); the checklist template's
 `good-tests.md` scopes its bar to unit tests and states how full-task tests
 are judged differently; SKILL.md's Phase 2 insertion no longer splits the
 gate-11 paragraph and no longer points Gate 13 readers at the good-tests
-reference; README lists the new reference. The reviewers' remaining
-finding — no fixture exercises 4b or 13, so the suite cannot detect
-regressions in this change itself — is recorded as roadmap work (a stateful
-fixture with expectations for 4b and 13) rather than silently accepted.
+reference; README lists the new reference. The reviewer's findings that
+remain only partially addressed are accepted with reasons: the property-based
+case is added to the unit-test bar (finding 6), Gate 13's applies decision
+keeps its judgement explicitly and now defaults to applies-when-unclear for
+code being changed (finding 7), and the leakage claim now says the
+motivating findings appear as generalized, anonymous stories (finding 9).
+The larger remaining finding — no fixture exercises 4b or 13, so the suite
+cannot detect regressions in this change itself — is recorded as roadmap
+work (a stateful fixture with expectations for 4b and 13) rather than
+silently accepted.
 
 ### Documentation prose cleanup
 

@@ -127,10 +127,10 @@ by a stale one, duplicates collapsing, an iteration budget honoured. Test
 through observable effects (call counts, recorded arguments, output contents,
 order) when the state itself is not exposed.
 
-A transition the change itself introduces that no test enters fails this
-gate. Pre-existing untested transitions in code the change does not touch
-are a gap to schedule, not a reason to drop the gate. Stateless code makes
-this gate a no-op; state it.
+A transition in code the change touches that no test enters fails this
+gate. Untested transitions in code the change does not touch are a gap to
+schedule, not a reason to drop the gate. Stateless code makes this gate a
+no-op; state it, and re-audit when code starts retaining state.
 
 ### 5. Documentation is updated
 
@@ -238,10 +238,12 @@ the modules that carry it. Deciding whether a recognizable domain core
 exists is the same kind of judgement call as Gates 4 and 11 — record the
 state and the reason either way; once the gate applies, the three criteria
 are binary. Projects with no recognizable domain core (script collections,
-thin glue or adapter services) state a no-op with its reason. A criterion
-violated by the change itself fails the gate; a pre-existing violation in
-code the change does not touch is a gap to schedule — extraction or seam
-work — not a blocker on every unrelated small change.
+thin glue or adapter services) state a no-op with its reason; when the
+question is genuinely unclear, apply the gate and record the uncertainty
+rather than recording a no-op for code you are about to change. A criterion
+violated in code the change touches fails the gate; a violation in code the
+change does not touch is a gap to schedule — extraction or seam work — not a
+blocker on every unrelated small change.
 
 ---
 

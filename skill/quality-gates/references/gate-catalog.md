@@ -171,12 +171,12 @@ stamp; a convergence loop with a budget. The audit method is in
   stale one, duplicates collapsing, an iteration budget honoured.
 - Test transitions through observable effects when state is not exposed: call
   counts, recorded arguments, output contents, order.
-- **Fails** when the changed code introduces an implemented transition that
-  no test enters and no stated reason shows unreachable. Fix before
-  done-done.
-- Gap when the audit finds pre-existing implemented but untested transitions
-  in code the change does not touch: record and schedule them. The gap is
-  work, not a reason to drop the gate.
+- **Fails** when an implemented transition in any code the change touches is
+  entered by no test and shown unreachable by no stated reason. Touching the
+  module means bringing its transitions under test. Fix before done-done.
+- Gap when the audit finds implemented but untested transitions in code the
+  change does not touch: record and schedule them. The gap is work, not a
+  reason to drop the gate.
 - No-op for stateless code (pure functions, stateless handlers). State the
   no-op so it is not read as an oversight.
 - Judgement gate, like Gates 4, 9, and 11: enforced by the checklist, not the
@@ -298,12 +298,15 @@ validation, decoding, scheduling rules), check three criteria:
 - No-op for projects with no recognizable domain core: script collections,
   thin glue or adapter services. State the reason so it is not read as an
   oversight.
-- **Fails** when the change itself violates a criterion — new domain logic
-  importing the transport module, a clock read added inside the core,
-  records routed around the decoder. Fix before done-done.
-- Gap when a pre-existing violation is found in code the change does not
-  touch: record it and schedule the extraction or seam work. It does not
-  block the current change.
+- **Fails** when a criterion is violated in any code the change touches —
+  new domain logic importing the transport module, a clock read inside the
+  core, records routed around the decoder. Touching the module means fixing
+  it. Fix before done-done.
+- Gap when a violation is found in code the change does not touch: record it
+  and schedule the extraction or seam work. It does not block the current
+  change. When whether a domain core exists is genuinely unclear, apply the
+  gate and record the uncertainty; do not record a no-op for code you are
+  about to change.
 - The three criteria describe patterns detected in the project in front of
   you, never files or modules carried over from another codebase's example.
 

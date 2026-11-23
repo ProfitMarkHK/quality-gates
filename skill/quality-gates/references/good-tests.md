@@ -14,7 +14,8 @@ that would still pass is restating the implementation, not testing it.
 A good unit test:
 
 - supplies known inputs and asserts exact expected outputs, errors, or side
-  effects
+  effects — or asserts a property that must hold across generated inputs
+  (property-based testing)
 - asserts on outputs or on state, not only on "returned without error" or the
   presence of a log line
 - covers invalid inputs, missing data, timeouts, and failure paths, not only
