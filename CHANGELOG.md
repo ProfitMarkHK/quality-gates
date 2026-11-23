@@ -31,6 +31,13 @@ which exists on the development machine but not on a bare runner, so CI now
 installs pytest explicitly — the second-environment signal remote CI exists
 for, working as intended.
 
+Branch protection on `main` is enabled: the `structural-gates` check is
+required (strict), enforced for admins too, with force pushes and deletions
+blocked. Applied with the repo-creator account, which already holds
+repo-admin rights; no separate org-admin credential was needed. From this
+point every change to `main` lands through a green-checked PR, including
+this one.
+
 ### Documentation prose cleanup
 
 - Rewrote project guidance, skill references, templates, and release notes to
